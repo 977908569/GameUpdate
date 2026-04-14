@@ -117,6 +117,7 @@ UnrealEditor-Cmd GameUpdate -run=HotUpdate -mode=patch -version=1.0.1 -baseversi
 ```bash
 # RunUAT 打包（推荐，自动化脚本自动处理 Chunk 分离）
 RunUAT BuildCookRun -project=E:/Test/HotPatch/GameUpdate/GameUpdate.uproject \
+    -ScriptsForProject=E:/Test/HotPatch/GameUpdate/GameUpdate.uproject \
     -platform=Win64 \
     -cook \
     -stage \
@@ -137,6 +138,7 @@ UnrealEditor-Cmd GameUpdate -run=HotUpdate -mode=base -version=1.0.0 \
 
 | 参数 | 说明 |
 |------|------|
+| `-ScriptsForProject=<path>` | 项目脚本路径（必需，用于加载项目 Automation 脚本） |
 | `-MinimalPackage` | 启用最小包模式 |
 | `-HotUpdateOutputDir=<path>` | 热更新资源输出目录，pakchunk1+ 文件将移动到此 |
 
