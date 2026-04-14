@@ -133,11 +133,18 @@ UnrealEditor-Cmd GameUpdate -run=HotUpdate -mode=base -version=1.0.0 \
 
 **最小包打包参数说明**：
 
+**RunUAT 参数**：
+
 | 参数 | 说明 |
 |------|------|
-| `-MinimalPackage` | 启用最小包模式（RunUAT 使用） |
+| `-MinimalPackage` | 启用最小包模式 |
 | `-HotUpdateOutputDir=<path>` | 热更新资源输出目录，pakchunk1+ 文件将移动到此 |
-| `-minimal` | 启用最小包模式（Commandlet 使用） |
+
+**Commandlet 参数**：
+
+| 参数 | 说明 |
+|------|------|
+| `-minimal` | 启用最小包模式 |
 | `-whitelist=<paths>` | 白名单目录（分号分隔），必须打包到 Chunk 0 |
 
 **自动化脚本说明** (`Build/AutomationScripts/StripExtraPakChunks.Automation.cs`)
