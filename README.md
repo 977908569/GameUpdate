@@ -127,8 +127,8 @@ RunUAT BuildCookRun -project=E:/Test/HotPatch/GameUpdate/GameUpdate.uproject \
 # UnrealEditor-Cmd 基础包构建（带最小包参数）
 UnrealEditor-Cmd GameUpdate -run=HotUpdate -mode=base -version=1.0.0 \
     -platform=Windows \
-    -EnableMinimalPackage \
-    -WhitelistDirectories="/Game/UI;/Game/Startup"
+    -minimal \
+    -whitelist="/Game/UI;/Game/Startup"
 ```
 
 **最小包打包参数说明**：
@@ -137,8 +137,8 @@ UnrealEditor-Cmd GameUpdate -run=HotUpdate -mode=base -version=1.0.0 \
 |------|------|
 | `-MinimalPackage` | 启用最小包模式（RunUAT 使用） |
 | `-HotUpdateOutputDir=<path>` | 热更新资源输出目录，pakchunk1+ 文件将移动到此 |
-| `-EnableMinimalPackage` | 启用最小包模式（Commandlet 使用） |
-| `-WhitelistDirectories=<paths>` | 白名单目录（分号分隔），必须打包到 Chunk 0 |
+| `-minimal` | 启用最小包模式（Commandlet 使用） |
+| `-whitelist=<paths>` | 白名单目录（分号分隔），必须打包到 Chunk 0 |
 
 **自动化脚本说明** (`Build/AutomationScripts/StripExtraPakChunks.Automation.cs`)
 
