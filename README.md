@@ -104,18 +104,29 @@ void OnCheckComplete(bool bHasUpdate, const FString& Version)
 
 ```bash
 # 构建基础包
-UnrealEditor-Cmd GameUpdate -run=HotUpdate -mode=base -version=1.0.0 -platform=Windows
+UnrealEditor-Cmd GameUpdate -run=HotUpdate -mode=base -version=1.0.0 -platform=Windows -output=D:/Output
 
 # 构建增量补丁
-UnrealEditor-Cmd GameUpdate -run=HotUpdate -mode=patch -version=1.0.1 -baseversion=1.0.0 -platform=Windows
+UnrealEditor-Cmd GameUpdate -run=HotUpdate -mode=patch -version=1.0.1 -baseversion=1.0.0 -platform=Windows -output=D:/Output
 ```
+
+**标准参数说明**：
+
+| 参数 | 说明 |
+|------|------|
+| `-mode` | 打包模式：base（基础包）或 patch（补丁包） |
+| `-version` | 版本号（如 1.0.0） |
+| `-baseversion` | 基础版本号（patch 模式必需） |
+| `-platform` | 目标平台：Windows、Android、IOS |
+| `-output` | 输出目录路径（可选，有默认值） |
+| `-shipping` | 发布版本构建（可选） |
+| `-skipbuild` | 跳过编译步骤（可选） |
 
 #### 最小包模式打包
 
 最小包模式用于构建"瘦身"首包，将 pakchunk1+ 资源分离到热更新目录，仅 pakchunk0 打包到最终安装包。
 
 ```bash
-# 基础包构建（带最小包参数）
 UnrealEditor-Cmd GameUpdate -run=HotUpdate -mode=base -version=1.0.0 \
     -platform=Windows \
     -minimal \
