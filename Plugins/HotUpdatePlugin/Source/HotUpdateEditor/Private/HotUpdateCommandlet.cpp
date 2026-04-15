@@ -16,7 +16,8 @@ DEFINE_LOG_CATEGORY_STATIC(LogHotUpdateCommandlet, Log, All);
 
 UHotUpdateCommandlet::UHotUpdateCommandlet(): bShowHelp(false), bIsShipping(false), bSkipBuild(false),
                                               bEnableMinimalPackage(false),
-                                              bIncludeBaseContainers(false)
+                                              bIncludeBaseContainers(false),
+                                              bSkipCook(false)
 {
 	// 命令行工具不需要渲染
 	IsClient = false;
@@ -128,6 +129,9 @@ bool UHotUpdateCommandlet::ParseCommandLine(const FString& Params)
 	// 解析 Android 纹理格式参数
 	FParse::Value(*Params, TEXT("textureformat="), TextureFormatStr);
 
+	// 解析跳过 Cook 参数
+	bSkipCook = FParse::Param(*Params, TEXT("skipcook"));
+
 	// 解析帮助标志
 	bShowHelp = FParse::Param(*Params, TEXT("help"));
 
@@ -146,6 +150,7 @@ bool UHotUpdateCommandlet::ParseCommandLine(const FString& Params)
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  IncludeBaseContainers: %s"), bIncludeBaseContainers ? TEXT("true") : TEXT("false"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  BaseContainerDir: %s"), *BaseContainerDir);
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  TextureFormat: %s"), *TextureFormatStr);
+	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  SkipCook: %s"), bSkipCook ? TEXT("true") : TEXT("false"));
 
 	return true;
 }
@@ -173,6 +178,7 @@ void UHotUpdateCommandlet::ShowHelp()
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -includebasecontainers 是否包含基础版本容器（全量热更新模式）"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -basecontainerdir     基础版本容器目录路径（全量热更新模式需要）"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -textureformat        Android 纹理格式: ETC2, ASTC, DXT, Multi (base 模式, 默认 ETC2)"));
+	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -skipcook             跳过 Cook 步骤 (patch 模式，默认会先 Cook)"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -help                 显示帮助信息"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT(""));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("示例:"));
@@ -295,6 +301,52 @@ int32 UHotUpdateCommandlet::ExecutePatchPackage()
 	{
 		UE_LOG(LogHotUpdateCommandlet, Error, TEXT("热更包需要指定基础版本号 -baseversion"));
 		return 1;
+	}
+
+	// Cook 资源：确保使用最新的 cooked 文件
+	// 不先 Cook 的话，Patch 会使用旧的 cooked 文件，导致修改不生效
+	if (!bSkipCook)
+	{
+		UE_LOG(LogHotUpdateCommandlet, Log, TEXT("开始 Cook 资源..."));
+
+		// 使用子进程执行 Cook，避免在当前 Editor 进程中调用 CookCommandlet 导致的平台冲突
+		FString EngineDir = FPaths::EngineDir();
+		FString ExePath = FPaths::ConvertRelativePathToFull(EngineDir / TEXT("Binaries/Win64/UnrealEditor-Cmd.exe"));
+		FString ProjectPath = FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath());
+
+		FString CookPlatform = HotUpdateUtils::GetPlatformString(ParsePlatform(PlatformStr));
+		FString Params = FString::Printf(TEXT("\"%s\" -run=cook -targetplatform=%s -NullRHI -unattended -NoSound"),
+			*ProjectPath, *CookPlatform);
+
+		UE_LOG(LogHotUpdateCommandlet, Log, TEXT("执行 Cook: %s %s"), *ExePath, *Params);
+
+		int32 ReturnCode = -1;
+		FProcHandle ProcHandle = FPlatformProcess::CreateProc(
+			*ExePath, *Params, true, true, true, nullptr, 0, nullptr, nullptr);
+
+		if (ProcHandle.IsValid())
+		{
+			FPlatformProcess::WaitForProc(ProcHandle);
+			FPlatformProcess::GetProcReturnCode(ProcHandle, &ReturnCode);
+			FPlatformProcess::CloseProc(ProcHandle);
+		}
+		else
+		{
+			UE_LOG(LogHotUpdateCommandlet, Error, TEXT("无法启动 Cook 进程"));
+			return 1;
+		}
+
+		if (ReturnCode != 0)
+		{
+			UE_LOG(LogHotUpdateCommandlet, Error, TEXT("Cook 失败，返回码: %d"), ReturnCode);
+			return 1;
+		}
+
+		UE_LOG(LogHotUpdateCommandlet, Log, TEXT("Cook 完成"));
+	}
+	else
+	{
+		UE_LOG(LogHotUpdateCommandlet, Log, TEXT("跳过 Cook 步骤 (使用 -skipcook 参数)"));
 	}
 
 	// 尝试查找基础版本 Manifest（优先从版本管理目录查找）

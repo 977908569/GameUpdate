@@ -87,4 +87,7 @@ private:
 
 	// Android 纹理格式参数
 	FString TextureFormatStr;      // Android 纹理格式字符串
+
+	// 是否跳过 Cook 步骤
+	bool bSkipCook;
 };
