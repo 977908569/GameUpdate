@@ -10,6 +10,7 @@
 #include "HAL/PlatformFileManager.h"
 #include "HAL/PlatformProcess.h"
 #include "Misc/FileHelper.h"
+#include "Misc/MonitoredProcess.h"
 #include "Misc/Paths.h"
 #include "Misc/App.h"
 #include "Misc/SecureHash.h"
@@ -41,6 +42,23 @@ FHotUpdatePatchPackageResult UHotUpdatePatchPackageBuilder::BuildPatchPackage(co
 	// 直接调用此同步方法的用户需要自行管理并发控制
 
 	bIsCancelled = false;
+
+	// 编译项目：确保 Cook 使用最新的游戏代码
+	if (!Config.bSkipBuild)
+	{
+		UpdateProgress(TEXT("编译项目"), TEXT(""), 0, 0);
+		if (!CompileProject(Config))
+		{
+			Result.bSuccess = false;
+			Result.ErrorMessage = TEXT("项目编译失败");
+			bIsBuilding = false;
+			return Result;
+		}
+	}
+	else
+	{
+		UE_LOG(LogHotUpdateEditor, Log, TEXT("跳过编译步骤 (bSkipBuild = true)"));
+	}
 
 	// Cook 资源：确保使用最新的 cooked 文件
 	if (!Config.bSkipCook)
@@ -970,27 +988,8 @@ bool UHotUpdatePatchPackageBuilder::CollectAssets(
 		UE_LOG(LogHotUpdateEditor, Log, TEXT("过滤掉 %d 个非项目资源（引擎/插件资源）"), FilteredCount);
 	}
 
-	// 过滤 UE5 OFPA 外部路径：__ExternalActors__ 和 __ExternalObjects__
-	// 这些是 Level 的子对象，烘焙时已合入 .umap 文件，不应作为独立资源打包
-	int32 ExternalFilteredCount = 0;
-	AllAssetPaths.RemoveAll([&ExternalFilteredCount](const FString& Path)
-	{
-		if (HotUpdateUtils::IsExternalActorOrObjectPath(Path))
-		{
-			ExternalFilteredCount++;
-			UE_LOG(LogHotUpdateEditor, Verbose, TEXT("过滤 UE5 外部 Actor/Object: %s"), *Path);
-			return true;
-		}
-		return false;
-	});
-
-	if (ExternalFilteredCount > 0)
-	{
-		UE_LOG(LogHotUpdateEditor, Log, TEXT("过滤掉 %d 个 UE5 外部 Actor/Object 资源"), ExternalFilteredCount);
-	}
-
 	// 获取磁盘路径
-	// 使用 Cooked 目录解析磁盘路径（运行时需要 cooked 格式的 .uasset + .uexp）
+	// 使用 Cooked 目录解析磁盘路径，文件不存在则自动过滤（包括 OFPA 等已合入 .umap 的资源）
 	FString CookedPlatformDir = FPaths::ProjectSavedDir() / TEXT("Cooked") / HotUpdateUtils::GetPlatformString(Config.Platform);
 	for (const FString& AssetPath : AllAssetPaths)
 	{
@@ -1557,15 +1556,6 @@ FString UHotUpdatePatchPackageBuilder::ConvertAssetPathToFileName(const FString&
 
 FString UHotUpdatePatchPackageBuilder::GetAssetDiskPath(const FString& AssetPath, const FString& CookedPlatformDir)
 {
-	// 安全网：过滤 UE5 OFPA 外部路径
-	// __ExternalActors__/__ExternalObjects__ 烘焙时已合入 .umap，不应作为独立资源打包
-	// 不返回磁盘路径，避免 FPackageName fallback 从源码目录找到文件
-	if (HotUpdateUtils::IsExternalActorOrObjectPath(AssetPath))
-	{
-		UE_LOG(LogHotUpdateEditor, Verbose, TEXT("跳过 UE5 外部 Actor/Object 路径: %s"), *AssetPath);
-		return TEXT("");
-	}
-
 	// 从 /Game/ 提取相对路径
 	FString RelativePath = AssetPath;
 	if (RelativePath.StartsWith(TEXT("/Game/")))
@@ -1577,7 +1567,7 @@ FString UHotUpdatePatchPackageBuilder::GetAssetDiskPath(const FString& AssetPath
 		RelativePath = RelativePath.Mid(1); // 去掉前导 "/"
 	}
 
-	// 优先从 Cooked 目录解析（运行时需要 cooked 格式的 .uasset + .uexp）
+	// 从 Cooked 目录解析（运行时需要 cooked 格式的 .uasset + .uexp）
 	if (!CookedPlatformDir.IsEmpty())
 	{
 		FString CookedContentDir = FPaths::Combine(CookedPlatformDir, FApp::GetProjectName(), TEXT("Content"));
@@ -1595,9 +1585,13 @@ FString UHotUpdatePatchPackageBuilder::GetAssetDiskPath(const FString& AssetPath
 		{
 			return CookedAssetPath;
 		}
+
+		// Cook 目录中不存在则返回空，不 fallback 到源码目录
+		// OFPA 等已合入 .umap 的资源不会有独立 cooked 文件，自然被过滤
+		return TEXT("");
 	}
 
-	// 回退：使用 FPackageName 解析到原始 Content 目录
+	// CookedPlatformDir 为空时，回退到 FPackageName 解析（兼容旧调用方式）
 	FString DiskPath = FPackageName::LongPackageNameToFilename(
 		AssetPath, FPackageName::GetAssetPackageExtension());
 
@@ -1969,6 +1963,72 @@ int32 UHotUpdatePatchPackageBuilder::CopyContainerFiles(
 	return CopiedCount;
 }
 
+bool UHotUpdatePatchPackageBuilder::CompileProject(const FHotUpdatePatchPackageConfig& Config)
+{
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("开始编译项目..."));
+
+	// 使用 UnrealBuildTool 直接编译游戏目标
+	// 比 UAT BuildCookRun 更轻量，且在编辑器运行时更可靠
+	FString EngineDir = FPaths::EngineDir();
+	FString UBTPath = FPaths::ConvertRelativePathToFull(
+		FPaths::Combine(EngineDir, TEXT("Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll")));
+
+	FString ProjectPath = FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath());
+	FString PlatformName = HotUpdateUtils::GetPlatformDirectoryName(Config.Platform);
+	FString BuildConfig = TEXT("Development");
+
+	// UBT 命令: dotnet UnrealBuildTool.dll <TargetName> <Platform> <Config> -project="..."
+	FString Params = FString::Printf(
+		TEXT("\"%s\" GameUpdate %s %s -project=\"%s\""),
+		*UBTPath, *PlatformName, *BuildConfig, *ProjectPath);
+
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("执行编译: dotnet %s"), *Params);
+
+	FString CommandLine = FString::Printf(TEXT("/c dotnet %s"), *Params);
+
+	// 使用 FMonitoredProcess 执行，实时输出编译日志
+	FMonitoredProcess Process(TEXT("cmd.exe"), CommandLine, true);
+
+	Process.OnOutput().BindLambda([](const FString& Output)
+	{
+		UE_LOG(LogHotUpdateEditor, Log, TEXT("%s"), *Output);
+	});
+
+	if (!Process.Launch())
+	{
+		UE_LOG(LogHotUpdateEditor, Error, TEXT("无法启动编译进程"));
+		return false;
+	}
+
+	// 等待进程完成，同时检查取消状态
+	while (Process.Update())
+	{
+		if (bIsCancelled)
+		{
+			Process.Cancel();
+			break;
+		}
+		FPlatformProcess::Sleep(0.1f);
+	}
+
+	int32 ReturnCode = Process.GetReturnCode();
+
+	if (bIsCancelled)
+	{
+		UE_LOG(LogHotUpdateEditor, Warning, TEXT("编译已取消"));
+		return false;
+	}
+
+	if (ReturnCode != 0)
+	{
+		UE_LOG(LogHotUpdateEditor, Error, TEXT("编译失败，返回码: %d"), ReturnCode);
+		return false;
+	}
+
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("编译完成"));
+	return true;
+}
+
 bool UHotUpdatePatchPackageBuilder::CookAssets(const FHotUpdatePatchPackageConfig& Config)
 {
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("开始 Cook 资源..."));
@@ -1984,19 +2044,36 @@ bool UHotUpdatePatchPackageBuilder::CookAssets(const FHotUpdatePatchPackageConfi
 
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("执行 Cook: %s %s"), *ExePath, *Params);
 
-	int32 ReturnCode = -1;
-	FProcHandle ProcHandle = FPlatformProcess::CreateProc(
-		*ExePath, *Params, true, true, true, nullptr, 0, nullptr, nullptr);
+	// 使用 FMonitoredProcess 执行，实时输出 Cook 日志
+	FMonitoredProcess Process(ExePath, Params, true);
 
-	if (ProcHandle.IsValid())
+	Process.OnOutput().BindLambda([](const FString& Output)
 	{
-		FPlatformProcess::WaitForProc(ProcHandle);
-		FPlatformProcess::GetProcReturnCode(ProcHandle, &ReturnCode);
-		FPlatformProcess::CloseProc(ProcHandle);
-	}
-	else
+		UE_LOG(LogHotUpdateEditor, Log, TEXT("%s"), *Output);
+	});
+
+	if (!Process.Launch())
 	{
 		UE_LOG(LogHotUpdateEditor, Error, TEXT("无法启动 Cook 进程"));
+		return false;
+	}
+
+	// 等待进程完成，同时检查取消状态
+	while (Process.Update())
+	{
+		if (bIsCancelled)
+		{
+			Process.Cancel();
+			break;
+		}
+		FPlatformProcess::Sleep(0.1f);
+	}
+
+	int32 ReturnCode = Process.GetReturnCode();
+
+	if (bIsCancelled)
+	{
+		UE_LOG(LogHotUpdateEditor, Warning, TEXT("Cook 已取消"));
 		return false;
 	}
 

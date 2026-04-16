@@ -465,6 +465,18 @@ TSharedRef<SWidget> SHotUpdatePackagingPanel::CreateBasicSettings()
 					.Font(FHotUpdateEditorStyle::GetNormalFont())
 				]
 			]
+			+ SWrapBox::Slot()
+			.Padding(0, 2, 12, 2)
+			[
+				SAssignNew(SkipBuildCheckBox, SCheckBox)
+				.IsChecked(ECheckBoxState::Unchecked)
+				.ToolTipText(LOCTEXT("SkipBuildTooltip", "跳过编译步骤。如果项目已编译，可以跳过以避免 Live Coding 冲突。如不确定请勿勾选，否则可能使用旧代码逻辑"))
+				[
+					SNew(STextBlock)
+					.Text(LOCTEXT("SkipBuild", "跳过编译"))
+					.Font(FHotUpdateEditorStyle::GetNormalFont())
+				]
+			]
 	];
 }
 
@@ -985,6 +997,7 @@ FReply SHotUpdatePackagingPanel::OnPackageClicked()
 	PatchConfig.bIncludeDependencies = PackageConfig.bIncludeDependencies;
 	PatchConfig.OutputDirectory = PackageConfig.OutputDirectory;
 	PatchConfig.bSkipCook = SkipCookCheckBox.IsValid() && SkipCookCheckBox->IsChecked();
+	PatchConfig.bSkipBuild = SkipBuildCheckBox.IsValid() && SkipBuildCheckBox->IsChecked();
 	PatchConfig.PackageType = PackageConfig.PackageType;
 	PatchConfig.IoStoreConfig.CompressionFormat = PackageConfig.bEnableCompression ? TEXT("Oodle") : TEXT("None");
 	PatchConfig.IoStoreConfig.CompressionLevel = PackageConfig.CompressionLevel;

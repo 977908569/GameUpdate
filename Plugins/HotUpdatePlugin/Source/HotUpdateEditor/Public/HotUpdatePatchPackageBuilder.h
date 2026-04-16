@@ -92,6 +92,13 @@ private:
 	bool CookAssets(const FHotUpdatePatchPackageConfig& Config);
 
 	/**
+	 * 编译项目
+	 * 使用 UAT BuildCookRun -build 编译游戏代码
+	 * 必须在 Cook 之前调用，确保 Cook 使用最新的代码
+	 */
+	bool CompileProject(const FHotUpdatePatchPackageConfig& Config);
+
+	/**
 	 * 收集资源
 	 */
 	bool CollectAssets(

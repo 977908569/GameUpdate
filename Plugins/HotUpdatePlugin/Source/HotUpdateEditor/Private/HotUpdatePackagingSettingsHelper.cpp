@@ -2,7 +2,6 @@
 
 #include "HotUpdatePackagingSettingsHelper.h"
 #include "HotUpdateEditor.h"
-#include "HotUpdateUtils.h"
 #include "Settings/ProjectPackagingSettings.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
@@ -56,24 +55,6 @@ FHotUpdatePackagingSettingsResult FHotUpdatePackagingSettingsHelper::ParsePackag
 	TSet<FString> UniquePaths(Result.AssetPaths);
 	Result.AssetPaths = UniquePaths.Array();
 
-	// 7. 过滤 UE5 OFPA 外部路径：__ExternalActors__ 和 __ExternalObjects__
-	{
-		int32 ExternalFilteredCount = 0;
-		Result.AssetPaths.RemoveAll([&ExternalFilteredCount](const FString& Path)
-		{
-			if (HotUpdateUtils::IsExternalActorOrObjectPath(Path))
-			{
-				ExternalFilteredCount++;
-				return true;
-			}
-			return false;
-		});
-
-		if (ExternalFilteredCount > 0)
-		{
-			UE_LOG(LogHotUpdateEditor, Log, TEXT("过滤掉 %d 个 UE5 外部 Actor/Object 资源"), ExternalFilteredCount);
-		}
-	}
 
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("解析项目打包配置完成: %d 个资源, %d 个地图"),
 		Result.AssetPaths.Num(), Result.MapPaths.Num());
@@ -141,11 +122,7 @@ TArray<FString> FHotUpdatePackagingSettingsHelper::CollectAlwaysCookAssets(UProj
 		for (const FAssetData& AssetData : AssetDataList)
 		{
 			FString PackageName = AssetData.PackageName.ToString();
-			// 过滤 UE5 OFPA 外部路径，这些是 Level 子对象，已合入烘焙后的 .umap
-			if (!HotUpdateUtils::IsExternalActorOrObjectPath(PackageName))
-			{
-				Result.Add(PackageName);
-			}
+			Result.Add(PackageName);
 		}
 
 		UE_LOG(LogHotUpdateEditor, Verbose, TEXT("从目录 %s 收集到 %d 个资源"), *NormalizedPath, AssetDataList.Num());

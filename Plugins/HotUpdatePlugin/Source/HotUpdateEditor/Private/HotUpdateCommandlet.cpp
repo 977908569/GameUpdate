@@ -172,7 +172,7 @@ void UHotUpdateCommandlet::ShowHelp()
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -output               输出目录路径"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -manifest             基础版本Manifest文件路径 (热更包需要)"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -shipping             是否为发布版本构建 (base 模式)"));
-	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -skipbuild            是否跳过编译步骤 (base 模式)"));
+	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -skipbuild            是否跳过编译步骤 (base/patch 模式，默认会先编译)"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -minimal              启用最小包模式 (base 模式)"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -whitelist            必须包含的目录，分号分隔 (如 /Game/UI;/Game/Maps)"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -includebasecontainers 是否包含基础版本容器（全量热更新模式）"));
@@ -336,6 +336,7 @@ int32 UHotUpdateCommandlet::ExecutePatchPackage()
 	Config.Platform = ParsePlatform(PlatformStr);
 	Config.BaseManifestPath.FilePath = ManifestPath;
 	Config.bSkipCook = bSkipCook;
+	Config.bSkipBuild = bSkipBuild;
 
 	// 配置输出目录
 	if (!OutputDir.IsEmpty())

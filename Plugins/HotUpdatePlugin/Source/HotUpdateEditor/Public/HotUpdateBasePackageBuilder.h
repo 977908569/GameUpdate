@@ -77,6 +77,19 @@ private:
 		FString& OutErrorMessage);
 
 	/**
+	 * 编译项目
+	 * 使用 UAT BuildCookRun -build 编译游戏代码
+	 * 必须在 Cook 之前调用，确保 Cook 使用最新的代码
+	 */
+	bool CompileProject(const FHotUpdateBasePackageConfig& Config);
+
+	/**
+	 * Cook 资源
+	 * 使用子进程执行 Cook，避免在当前 Editor 进程中调用 CookCommandlet 导致的平台冲突
+	 */
+	bool CookAssets(const FHotUpdateBasePackageConfig& Config);
+
+	/**
 	 * 生成 Manifest
 	 */
 	bool GenerateManifest(

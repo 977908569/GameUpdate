@@ -484,12 +484,29 @@ struct HOTUPDATEEDITOR_API FHotUpdateBasePackageConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MinimalPackage")
 	FHotUpdateMinimalPackageConfig MinimalPackageConfig;
 
+	/// 是否跳过编译步骤（默认 false = 编译后再 Cook）
+	/// 编译确保 Cook 使用最新的游戏代码，避免使用旧代码逻辑
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
+	bool bSkipBuild;
+
+	/// 是否跳过 Cook 步骤（默认 false = 先 Cook 再打包）
+	/// 不 Cook 的话，打包会使用旧的 cooked 文件，导致修改不生效
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
+	bool bSkipCook;
+
+	/// 构建配置（Development/Shipping）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
+	EHotUpdateBuildConfiguration BuildConfiguration;
+
 	FHotUpdateBasePackageConfig()
 		: Platform(EHotUpdatePlatform::Windows)
 		, PackageType(EHotUpdatePackageType::FromPackagingSettings)
 		, bIncludeDependencies(true)
 		, ChunkStrategy(EHotUpdateChunkStrategy::PrimaryAsset)
 		, MaxChunkSizeMB(256)
+		, bSkipBuild(false)
+		, bSkipCook(false)
+		, BuildConfiguration(EHotUpdateBuildConfiguration::Development)
 	{
 		SizeBasedConfig.MaxChunkSizeMB = 256;
 	}
@@ -536,6 +553,11 @@ struct HOTUPDATEEDITOR_API FHotUpdatePatchPackageConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
 	bool bSkipCook;
 
+	/// 是否跳过编译步骤（默认 false = 编译后再 Cook）
+	/// 编译确保 Cook 使用最新的游戏代码，避免使用旧代码逻辑
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
+	bool bSkipBuild;
+
 	/// 输出目录
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
 	FDirectoryPath OutputDirectory;
@@ -574,6 +596,7 @@ struct HOTUPDATEEDITOR_API FHotUpdatePatchPackageConfig
 		, PackageType(EHotUpdatePackageType::FromPackagingSettings)
 		, bIncludeDependencies(true)
 		, bSkipCook(false)
+		, bSkipBuild(false)
 		, bEnableChainPatch(false)
 		, bIncludeBaseContainers(false)
 	{

@@ -247,6 +247,9 @@ private:
 	/** 跳过 Cook 复选框 */
 	TSharedPtr<SCheckBox> SkipCookCheckBox;
 
+	/** 跳过编译复选框 */
+	TSharedPtr<SCheckBox> SkipBuildCheckBox;
+
 	/** 打包模式选项列表 */
 	TArray<TSharedPtr<EHotUpdatePackagingMode>> PackagingModeOptions;
 
