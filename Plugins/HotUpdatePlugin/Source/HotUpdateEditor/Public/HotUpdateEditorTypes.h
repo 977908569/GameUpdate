@@ -531,6 +531,11 @@ struct HOTUPDATEEDITOR_API FHotUpdatePatchPackageConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
 	bool bIncludeDependencies;
 
+	/// 是否跳过 Cook 步骤（默认 false = 先 Cook 再打包）
+	/// 不 Cook 的话，Patch 会使用旧的 cooked 文件，导致修改不生效
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
+	bool bSkipCook;
+
 	/// 输出目录
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
 	FDirectoryPath OutputDirectory;
@@ -568,6 +573,7 @@ struct HOTUPDATEEDITOR_API FHotUpdatePatchPackageConfig
 		: Platform(EHotUpdatePlatform::Windows)
 		, PackageType(EHotUpdatePackageType::FromPackagingSettings)
 		, bIncludeDependencies(true)
+		, bSkipCook(false)
 		, bEnableChainPatch(false)
 		, bIncludeBaseContainers(false)
 	{

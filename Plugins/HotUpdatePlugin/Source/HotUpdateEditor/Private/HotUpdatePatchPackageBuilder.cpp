@@ -8,6 +8,7 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
 #include "HAL/PlatformFileManager.h"
+#include "HAL/PlatformProcess.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/App.h"
@@ -40,6 +41,23 @@ FHotUpdatePatchPackageResult UHotUpdatePatchPackageBuilder::BuildPatchPackage(co
 	// 直接调用此同步方法的用户需要自行管理并发控制
 
 	bIsCancelled = false;
+
+	// Cook 资源：确保使用最新的 cooked 文件
+	if (!Config.bSkipCook)
+	{
+		UpdateProgress(TEXT("Cook 资源"), TEXT(""), 0, 0);
+		if (!CookAssets(Config))
+		{
+			Result.bSuccess = false;
+			Result.ErrorMessage = TEXT("Cook 资源失败");
+			bIsBuilding = false;
+			return Result;
+		}
+	}
+	else
+	{
+		UE_LOG(LogHotUpdateEditor, Log, TEXT("跳过 Cook 步骤 (bSkipCook = true)"));
+	}
 
 	// 1. 加载基础版本 Manifest
 	UpdateProgress(TEXT("加载基础版本"), TEXT(""), 0, 0);
@@ -1949,4 +1967,45 @@ int32 UHotUpdatePatchPackageBuilder::CopyContainerFiles(
 	}
 
 	return CopiedCount;
+}
+
+bool UHotUpdatePatchPackageBuilder::CookAssets(const FHotUpdatePatchPackageConfig& Config)
+{
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("开始 Cook 资源..."));
+
+	// 使用子进程执行 Cook，避免在当前 Editor 进程中调用 CookCommandlet 导致的平台冲突
+	FString EngineDir = FPaths::EngineDir();
+	FString ExePath = FPaths::ConvertRelativePathToFull(EngineDir / TEXT("Binaries/Win64/UnrealEditor-Cmd.exe"));
+	FString ProjectPath = FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath());
+
+	FString CookPlatform = HotUpdateUtils::GetPlatformString(Config.Platform);
+	FString Params = FString::Printf(TEXT("\"%s\" -run=cook -targetplatform=%s -NullRHI -unattended -NoSound"),
+		*ProjectPath, *CookPlatform);
+
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("执行 Cook: %s %s"), *ExePath, *Params);
+
+	int32 ReturnCode = -1;
+	FProcHandle ProcHandle = FPlatformProcess::CreateProc(
+		*ExePath, *Params, true, true, true, nullptr, 0, nullptr, nullptr);
+
+	if (ProcHandle.IsValid())
+	{
+		FPlatformProcess::WaitForProc(ProcHandle);
+		FPlatformProcess::GetProcReturnCode(ProcHandle, &ReturnCode);
+		FPlatformProcess::CloseProc(ProcHandle);
+	}
+	else
+	{
+		UE_LOG(LogHotUpdateEditor, Error, TEXT("无法启动 Cook 进程"));
+		return false;
+	}
+
+	if (ReturnCode != 0)
+	{
+		UE_LOG(LogHotUpdateEditor, Error, TEXT("Cook 失败，返回码: %d"), ReturnCode);
+		return false;
+	}
+
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("Cook 完成"));
+	return true;
 }

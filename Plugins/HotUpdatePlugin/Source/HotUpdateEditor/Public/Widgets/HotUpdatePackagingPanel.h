@@ -250,6 +250,8 @@ private:
 
 	/** 打包模式下拉框 */
 	TSharedPtr<SComboBox<TSharedPtr<EHotUpdatePackagingMode>>> PackagingModeComboBox;
+	/** 跳过 Cook 复选框 */
+	TSharedPtr<SCheckBox> SkipCookCheckBox;
 
 	/** 打包模式选项列表 */
 	TArray<TSharedPtr<EHotUpdatePackagingMode>> PackagingModeOptions;

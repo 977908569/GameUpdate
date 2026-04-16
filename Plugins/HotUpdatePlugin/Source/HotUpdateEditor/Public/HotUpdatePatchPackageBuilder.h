@@ -86,6 +86,12 @@ public:
 
 private:
 	/**
+	 * Cook 资源
+	 * 使用子进程执行 Cook，避免在当前 Editor 进程中调用 CookCommandlet 导致的平台冲突
+	 */
+	bool CookAssets(const FHotUpdatePatchPackageConfig& Config);
+
+	/**
 	 * 收集资源
 	 */
 	bool CollectAssets(

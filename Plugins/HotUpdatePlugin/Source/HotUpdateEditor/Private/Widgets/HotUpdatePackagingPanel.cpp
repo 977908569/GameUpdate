@@ -453,6 +453,18 @@ TSharedRef<SWidget> SHotUpdatePackagingPanel::CreateBasicSettings()
 				.Font(FHotUpdateEditorStyle::GetNormalFont())
 			]
 		]
+			+ SWrapBox::Slot()
+			.Padding(0, 2, 12, 2)
+			[
+				SAssignNew(SkipCookCheckBox, SCheckBox)
+				.IsChecked(ECheckBoxState::Unchecked)
+				.ToolTipText(LOCTEXT("SkipCookTooltip", "跳过 Cook 步骤，使用已有的 cooked 文件打包。如不确定请勿勾选，否则热更可能不生效"))
+				[
+					SNew(STextBlock)
+					.Text(LOCTEXT("SkipCook", "跳过 Cook"))
+					.Font(FHotUpdateEditorStyle::GetNormalFont())
+				]
+			]
 	];
 }
 
@@ -983,6 +995,7 @@ FReply SHotUpdatePackagingPanel::OnPackageClicked()
 	PatchConfig.AssetPaths = PackageConfig.AssetPaths;
 	PatchConfig.bIncludeDependencies = PackageConfig.bIncludeDependencies;
 	PatchConfig.OutputDirectory = PackageConfig.OutputDirectory;
+	PatchConfig.bSkipCook = SkipCookCheckBox.IsValid() && SkipCookCheckBox->IsChecked();
 	PatchConfig.PackageType = PackageConfig.PackageType;
 	PatchConfig.IoStoreConfig.CompressionFormat = PackageConfig.bEnableCompression ? TEXT("Oodle") : TEXT("None");
 	PatchConfig.IoStoreConfig.CompressionLevel = PackageConfig.CompressionLevel;

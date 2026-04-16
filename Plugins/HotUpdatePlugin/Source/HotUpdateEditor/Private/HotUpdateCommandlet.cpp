@@ -303,52 +303,6 @@ int32 UHotUpdateCommandlet::ExecutePatchPackage()
 		return 1;
 	}
 
-	// Cook 资源：确保使用最新的 cooked 文件
-	// 不先 Cook 的话，Patch 会使用旧的 cooked 文件，导致修改不生效
-	if (!bSkipCook)
-	{
-		UE_LOG(LogHotUpdateCommandlet, Log, TEXT("开始 Cook 资源..."));
-
-		// 使用子进程执行 Cook，避免在当前 Editor 进程中调用 CookCommandlet 导致的平台冲突
-		FString EngineDir = FPaths::EngineDir();
-		FString ExePath = FPaths::ConvertRelativePathToFull(EngineDir / TEXT("Binaries/Win64/UnrealEditor-Cmd.exe"));
-		FString ProjectPath = FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath());
-
-		FString CookPlatform = HotUpdateUtils::GetPlatformString(ParsePlatform(PlatformStr));
-		FString Params = FString::Printf(TEXT("\"%s\" -run=cook -targetplatform=%s -NullRHI -unattended -NoSound"),
-			*ProjectPath, *CookPlatform);
-
-		UE_LOG(LogHotUpdateCommandlet, Log, TEXT("执行 Cook: %s %s"), *ExePath, *Params);
-
-		int32 ReturnCode = -1;
-		FProcHandle ProcHandle = FPlatformProcess::CreateProc(
-			*ExePath, *Params, true, true, true, nullptr, 0, nullptr, nullptr);
-
-		if (ProcHandle.IsValid())
-		{
-			FPlatformProcess::WaitForProc(ProcHandle);
-			FPlatformProcess::GetProcReturnCode(ProcHandle, &ReturnCode);
-			FPlatformProcess::CloseProc(ProcHandle);
-		}
-		else
-		{
-			UE_LOG(LogHotUpdateCommandlet, Error, TEXT("无法启动 Cook 进程"));
-			return 1;
-		}
-
-		if (ReturnCode != 0)
-		{
-			UE_LOG(LogHotUpdateCommandlet, Error, TEXT("Cook 失败，返回码: %d"), ReturnCode);
-			return 1;
-		}
-
-		UE_LOG(LogHotUpdateCommandlet, Log, TEXT("Cook 完成"));
-	}
-	else
-	{
-		UE_LOG(LogHotUpdateCommandlet, Log, TEXT("跳过 Cook 步骤 (使用 -skipcook 参数)"));
-	}
-
 	// 尝试查找基础版本 Manifest（优先从版本管理目录查找）
 	FString PlatformName = HotUpdateUtils::GetPlatformString(ParsePlatform(PlatformStr));
 
@@ -381,6 +335,7 @@ int32 UHotUpdateCommandlet::ExecutePatchPackage()
 	Config.BaseVersion = BaseVersion;
 	Config.Platform = ParsePlatform(PlatformStr);
 	Config.BaseManifestPath.FilePath = ManifestPath;
+	Config.bSkipCook = bSkipCook;
 
 	// 配置输出目录
 	if (!OutputDir.IsEmpty())
