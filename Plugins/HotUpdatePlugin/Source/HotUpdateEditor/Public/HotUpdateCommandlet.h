@@ -81,4 +81,7 @@ private:
 
 	// 是否跳过 Cook 步骤
 	bool bSkipCook;
+
+	// 是否启用增量 Cook
+	bool bIncrementalCook;
 };

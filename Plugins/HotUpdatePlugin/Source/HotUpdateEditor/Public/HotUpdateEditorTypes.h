@@ -454,6 +454,13 @@ struct HOTUPDATEEDITOR_API FHotUpdatePatchPackageConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
 	bool bSkipCook;
 
+	/// 是否启用增量 Cook 模式
+	/// 启用后只 Cook 有变更的资源（基于 Diff 结果），而非全量 Cook
+	/// 使用 -PACKAGE + -cooksinglepackage 只 Cook 指定资源，大幅减少 Cook 时间
+	/// 需要先有上次 Cook 的输出文件作为 Diff 基准
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
+	bool bIncrementalCook;
+
 	/// 是否跳过编译步骤（默认 false = 编译后再 Cook）
 	/// 编译确保 Cook 使用最新的游戏代码，避免使用旧代码逻辑
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
@@ -497,6 +504,7 @@ struct HOTUPDATEEDITOR_API FHotUpdatePatchPackageConfig
 		, PackageType(EHotUpdatePackageType::FromPackagingSettings)
 		, bIncludeDependencies(true)
 		, bSkipCook(false)
+		, bIncrementalCook(false)
 		, bSkipBuild(false)
 		, bEnableChainPatch(false)
 		, bIncludeBaseContainers(false)

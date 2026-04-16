@@ -238,6 +238,9 @@ private:
 	/** 跳过 Cook 复选框 */
 	TSharedPtr<SCheckBox> SkipCookCheckBox;
 
+	/** 增量 Cook 复选框 */
+	TSharedPtr<SCheckBox> IncrementalCookCheckBox;
+
 	/** 跳过编译复选框 */
 	TSharedPtr<SCheckBox> SkipBuildCheckBox;
 

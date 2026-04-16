@@ -17,7 +17,8 @@ DEFINE_LOG_CATEGORY_STATIC(LogHotUpdateCommandlet, Log, All);
 UHotUpdateCommandlet::UHotUpdateCommandlet(): bShowHelp(false), bIsShipping(false), bSkipBuild(false),
                                               bEnableMinimalPackage(false),
                                               bIncludeBaseContainers(false),
-                                              bSkipCook(false)
+                                              bSkipCook(false),
+                                              bIncrementalCook(false)
 {
 	// 命令行工具不需要渲染
 	IsClient = false;
@@ -131,6 +132,7 @@ bool UHotUpdateCommandlet::ParseCommandLine(const FString& Params)
 
 	// 解析跳过 Cook 参数
 	bSkipCook = FParse::Param(*Params, TEXT("skipcook"));
+	bIncrementalCook = FParse::Param(*Params, TEXT("incrementalcook"));
 
 	// 解析帮助标志
 	bShowHelp = FParse::Param(*Params, TEXT("help"));
@@ -151,6 +153,7 @@ bool UHotUpdateCommandlet::ParseCommandLine(const FString& Params)
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  BaseContainerDir: %s"), *BaseContainerDir);
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  TextureFormat: %s"), *TextureFormatStr);
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  SkipCook: %s"), bSkipCook ? TEXT("true") : TEXT("false"));
+	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  IncrementalCook: %s"), bIncrementalCook ? TEXT("true") : TEXT("false"));
 
 	return true;
 }
@@ -179,6 +182,7 @@ void UHotUpdateCommandlet::ShowHelp()
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -basecontainerdir     基础版本容器目录路径（全量热更新模式需要）"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -textureformat        Android 纹理格式: ETC2, ASTC, DXT, Multi (base 模式, 默认 ETC2)"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -skipcook             跳过 Cook 步骤 (patch 模式，默认会先 Cook)"));
+		UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -incrementalcook      启用增量 Cook，只 Cook 有变更的资源 (patch 模式)"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -help                 显示帮助信息"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT(""));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("示例:"));
@@ -336,6 +340,7 @@ int32 UHotUpdateCommandlet::ExecutePatchPackage()
 	Config.Platform = ParsePlatform(PlatformStr);
 	Config.BaseManifestPath.FilePath = ManifestPath;
 	Config.bSkipCook = bSkipCook;
+	Config.bIncrementalCook = bIncrementalCook;
 	Config.bSkipBuild = bSkipBuild;
 
 	// 配置输出目录

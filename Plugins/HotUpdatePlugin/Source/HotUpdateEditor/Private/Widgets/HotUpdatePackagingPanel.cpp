@@ -457,6 +457,18 @@ TSharedRef<SWidget> SHotUpdatePackagingPanel::CreateBasicSettings()
 			+ SWrapBox::Slot()
 			.Padding(0, 2, 12, 2)
 			[
+				SAssignNew(IncrementalCookCheckBox, SCheckBox)
+				.IsChecked(ECheckBoxState::Unchecked)
+				.ToolTipText(LOCTEXT("IncrementalCookTooltip", "只 Cook 有变更的资源，大幅减少 Cook 时间。基于 Diff 结果确定变更资源，使用 -PACKAGE + -cooksinglepackage 只 Cook 指定资源。需要已有 Cooked 输出作为基准"))
+				[
+					SNew(STextBlock)
+					.Text(LOCTEXT("IncrementalCook", "增量 Cook"))
+					.Font(FHotUpdateEditorStyle::GetNormalFont())
+				]
+			]
+			+ SWrapBox::Slot()
+			.Padding(0, 2, 12, 2)
+			[
 				SAssignNew(SkipBuildCheckBox, SCheckBox)
 				.IsChecked(ECheckBoxState::Unchecked)
 				.ToolTipText(LOCTEXT("SkipBuildTooltip", "跳过编译步骤。如果项目已编译，可以跳过以避免 Live Coding 冲突。如不确定请勿勾选，否则可能使用旧代码逻辑"))
@@ -982,6 +994,7 @@ FReply SHotUpdatePackagingPanel::OnPackageClicked()
 	PatchConfig.bIncludeDependencies = PackageConfig.bIncludeDependencies;
 	PatchConfig.OutputDirectory = PackageConfig.OutputDirectory;
 	PatchConfig.bSkipCook = SkipCookCheckBox.IsValid() && SkipCookCheckBox->IsChecked();
+	PatchConfig.bIncrementalCook = IncrementalCookCheckBox.IsValid() && IncrementalCookCheckBox->IsChecked();
 	PatchConfig.bSkipBuild = SkipBuildCheckBox.IsValid() && SkipBuildCheckBox->IsChecked();
 	PatchConfig.PackageType = PackageConfig.PackageType;
 	PatchConfig.IoStoreConfig.CompressionFormat = PackageConfig.bEnableCompression ? TEXT("Oodle") : TEXT("None");

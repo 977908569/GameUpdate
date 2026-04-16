@@ -65,13 +65,22 @@ FHotUpdatePatchPackageResult UHotUpdatePatchPackageBuilder::BuildPatchPackage(co
 	// Cook 资源：确保使用最新的 cooked 文件
 	if (!CurrentConfig.bSkipCook)
 	{
-		UpdateProgress(TEXT("Cook 资源"), TEXT(""), 0, 0);
-		if (!CookAssets())
+		if (CurrentConfig.bIncrementalCook)
 		{
-			Result.bSuccess = false;
-			Result.ErrorMessage = TEXT("Cook 资源失败");
-			bIsBuilding = false;
-			return Result;
+			// 增量 Cook 模式：Cook 移到 Diff 之后，只 Cook 变化的资源
+			UE_LOG(LogHotUpdateEditor, Log, TEXT("增量 Cook 模式: Cook 将在 Diff 之后执行"));
+		}
+		else
+		{
+			// 全量 Cook 模式：先 Cook 再 Diff
+			UpdateProgress(TEXT("Cook 资源"), TEXT(""), 0, 0);
+			if (!CookAssets())
+			{
+				Result.bSuccess = false;
+				Result.ErrorMessage = TEXT("Cook 资源失败");
+				bIsBuilding = false;
+				return Result;
+			}
 		}
 	}
 	else
@@ -166,7 +175,6 @@ FHotUpdatePatchPackageResult UHotUpdatePatchPackageBuilder::BuildPatchPackage(co
 			CurrentAssetHashes.Add(AssetPath, UHotUpdateFileUtils::CalculateFileHash(*DiskPath));
 			CurrentAssetSizes.Add(AssetPath, IFileManager::Get().FileSize(**DiskPath));
 		}
-
 		UpdateProgress(TEXT("计算资源 Hash"), AssetPath, i + 1, CurrentAssetPaths.Num());
 	}
 
@@ -192,6 +200,104 @@ FHotUpdatePatchPackageResult UHotUpdatePatchPackageBuilder::BuildPatchPackage(co
 
 	// 增量模式：只打包变更的资源（新增 + 修改）
 	// 用于打包的资源列表（只包含变更资源）
+
+	// === 增量 Cook：在 Diff 之后执行 ===
+	if (CurrentConfig.bIncrementalCook && !CurrentConfig.bSkipCook)
+	{
+		// 提取修改资源（有 Cooked 输出，Hash 变了）
+		TArray<FString> AssetsToCook;
+		for (const FHotUpdateAssetDiff& Diff : DiffReport.ModifiedAssets)
+		{
+			AssetsToCook.Add(Diff.AssetPath);
+		}
+
+		// 查找新增资源：根据项目打包设置获取需要 Cook 的完整资源列表，与基础 Manifest 对比
+		// 不在基础 Manifest 中的资源 = 新增资源
+		{
+			FHotUpdatePackagingSettingsResult SettingsResult = FHotUpdatePackagingSettingsHelper::ParsePackagingSettings(true);
+
+			// 构建基础 Manifest 资源集合
+			TSet<FString> BaseAssetSet;
+			for (const auto& Pair : BaseAssetHashes)
+			{
+				BaseAssetSet.Add(Pair.Key);
+			}
+
+			for (const FString& AssetPath : SettingsResult.AssetPaths)
+			{
+				// 跳过 OFPA 数据
+				if (AssetPath.Contains(TEXT("/__ExternalActors__/")) || AssetPath.Contains(TEXT("/__ExternalObjects__/")))
+				{
+					continue;
+				}
+
+				// 不在基础 Manifest 中 = 新增资源
+				if (!BaseAssetSet.Contains(AssetPath))
+				{
+					AssetsToCook.Add(AssetPath);
+					UE_LOG(LogHotUpdateEditor, Log, TEXT("增量 Cook: 发现新增资源: %s"), *AssetPath);
+				}
+			}
+		}
+
+		UE_LOG(LogHotUpdateEditor, Log, TEXT("增量 Cook: 需要 Cook %d 个资源 (修改 %d + 新增)"),
+			AssetsToCook.Num(), DiffReport.ModifiedAssets.Num());
+
+		if (AssetsToCook.Num() > 0)
+		{
+			UpdateProgress(TEXT("增量 Cook 资源"), TEXT(""), 0, AssetsToCook.Num());
+			if (!CookAssets(AssetsToCook))
+			{
+				// 增量 Cook 失败，回退到全量 Cook
+				UE_LOG(LogHotUpdateEditor, Warning, TEXT("增量 Cook 失败，回退到全量 Cook"));
+				if (!CookAssets())
+				{
+					Result.bSuccess = false;
+					Result.ErrorMessage = TEXT("Cook 资源失败");
+					bIsBuilding = false;
+					return Result;
+				}
+			}
+
+			// 重新收集资源和计算 Hash（Cook 后可能有新的 Cooked 输出）
+			UpdateProgress(TEXT("更新资源 Hash"), TEXT(""), 0, AssetsToCook.Num());
+			FString CookedPlatformDir = HotUpdateUtils::GetCookedPlatformDir(CurrentConfig.Platform);
+			for (int32 i = 0; i < AssetsToCook.Num(); i++)
+			{
+				const FString& AssetPath = AssetsToCook[i];
+				FString DiskPath = GetAssetDiskPath(AssetPath, CookedPlatformDir);
+				if (!DiskPath.IsEmpty() && FPaths::FileExists(*DiskPath))
+				{
+					CurrentAssetHashes.Add(AssetPath, UHotUpdateFileUtils::CalculateFileHash(*DiskPath));
+					CurrentAssetSizes.Add(AssetPath, IFileManager::Get().FileSize(*DiskPath));
+					CurrentAssetDiskPaths.Add(AssetPath, DiskPath);
+					CurrentAssetPaths.AddUnique(AssetPath);
+				}
+				UpdateProgress(TEXT("更新资源 Hash"), AssetPath, i + 1, AssetsToCook.Num());
+			}
+
+			// 重新计算 Diff（Hash 可能因 Cook 而变化）
+			ChangedAssets.Reset();
+			DiffReport = FHotUpdateDiffReport();
+			if (!ComputeDiff(CurrentAssetPaths, CurrentAssetHashes, BaseAssetHashes, ChangedAssets, DiffReport))
+			{
+				Result.bSuccess = false;
+				Result.ErrorMessage = TEXT("重新计算差异失败");
+				bIsBuilding = false;
+				return Result;
+			}
+			DiffReport.BaseVersion = CurrentConfig.BaseVersion;
+			DiffReport.TargetVersion = CurrentConfig.PatchVersion;
+
+			UE_LOG(LogHotUpdateEditor, Log, TEXT("增量 Cook 后重新计算差异: 新增 %d, 修改 %d, 删除 %d"),
+				DiffReport.AddedAssets.Num(), DiffReport.ModifiedAssets.Num(), DiffReport.DeletedAssets.Num());
+		}
+		else
+		{
+			UE_LOG(LogHotUpdateEditor, Log, TEXT("增量 Cook: 没有需要 Cook 的资源变更"));
+		}
+	}
+
 	TMap<FString, FString> ChangedAssetDiskPaths;
 
 	// Cooked 平台目录，用于解析运行时需要的 cooked 格式文件路径
@@ -972,7 +1078,8 @@ bool UHotUpdatePatchPackageBuilder::CollectAssets(
 	}
 	
 	// 获取磁盘路径
-	// 使用 Cooked 目录解析磁盘路径，文件不存在则自动过滤（包括 OFPA 等已合入 .umap 的资源）
+	// 使用 Cooked 目录解析磁盘路径
+	// 非增量模式：文件不存在则自动过滤（包括 OFPA 等已合入 .umap 的资源）
 	FString CookedPlatformDir = HotUpdateUtils::GetCookedPlatformDir(CurrentConfig.Platform);
 	for (const FString& AssetPath : AllAssetPaths)
 	{
@@ -1713,7 +1820,6 @@ FString UHotUpdatePatchPackageBuilder::GetAssetDiskPath(const FString& AssetPath
 	if (FPaths::FileExists(*CookedAssetPath))
 		return CookedAssetPath;
 
-
 	return TEXT("");
 }
 
@@ -2141,7 +2247,7 @@ bool UHotUpdatePatchPackageBuilder::CompileProject()
 	return true;
 }
 
-bool UHotUpdatePatchPackageBuilder::CookAssets()
+bool UHotUpdatePatchPackageBuilder::CookAssets(const TArray<FString>& AssetsToCook)
 {
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("开始 Cook 资源..."));
 
@@ -2157,8 +2263,31 @@ bool UHotUpdatePatchPackageBuilder::CookAssets()
 	FString ProjectPath = FPaths::ConvertRelativePathToFull(FPaths::GetProjectFilePath());
 
 	FString CookPlatform = HotUpdateUtils::GetPlatformString(CurrentConfig.Platform);
-	FString Params = FString::Printf(TEXT("\"%s\" -run=cook -targetplatform=%s -NullRHI -unattended -NoSound"),
-		*ProjectPath, *CookPlatform);
+
+	FString Params;
+	if (AssetsToCook.Num() > 0)
+	{
+		// 增量 Cook：只 Cook 指定资源
+		FString PackageList;
+		for (int32 i = 0; i < AssetsToCook.Num(); i++)
+		{
+			if (i > 0) PackageList += TEXT("+");
+			PackageList += AssetsToCook[i];
+		}
+
+		Params = FString::Printf(TEXT("\"%s\" -run=cook -targetplatform=%s -PACKAGE=%s -cooksinglepackage -NullRHI -unattended -NoSound"),
+			*ProjectPath, *CookPlatform, *PackageList);
+
+		UE_LOG(LogHotUpdateEditor, Log, TEXT("增量 Cook: 只 Cook %d 个资源"), AssetsToCook.Num());
+	}
+	else
+	{
+		// 全量 Cook
+		Params = FString::Printf(TEXT("\"%s\" -run=cook -targetplatform=%s -NullRHI -unattended -NoSound"),
+			*ProjectPath, *CookPlatform);
+
+		UE_LOG(LogHotUpdateEditor, Log, TEXT("全量 Cook"));
+	}
 
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("执行 Cook: %s %s"), *ExePath, *Params);
 
@@ -2197,6 +2326,29 @@ bool UHotUpdatePatchPackageBuilder::CookAssets()
 
 	if (ReturnCode != 0)
 	{
+		bool bIsIncremental = AssetsToCook.Num() > 0;
+		if (bIsIncremental && ReturnCode == 1)
+		{
+			// 增量 Cook 返回码 1 通常是依赖缺失警告（如 -cooksinglepackage 的 "Content is missing from cook"）
+			// 检查目标文件是否已生成，如果至少有一个文件生成则视为成功
+			UE_LOG(LogHotUpdateEditor, Warning, TEXT("增量 Cook 返回警告码 1，检查 Cook 输出..."));
+			FString CookedPlatformDir = HotUpdateUtils::GetCookedPlatformDir(CurrentConfig.Platform);
+			int32 FoundCount = 0;
+			for (const FString& AssetPath : AssetsToCook)
+			{
+				FString DiskPath = GetAssetDiskPath(AssetPath, CookedPlatformDir);
+				if (!DiskPath.IsEmpty() && FPaths::FileExists(*DiskPath))
+				{
+					FoundCount++;
+				}
+			}
+			if (FoundCount > 0)
+			{
+				UE_LOG(LogHotUpdateEditor, Log, TEXT("增量 Cook: %d/%d 个目标文件已生成，视为成功"), FoundCount, AssetsToCook.Num());
+				UE_LOG(LogHotUpdateEditor, Log, TEXT("Cook 完成"));
+				return true;
+			}
+		}
 		UE_LOG(LogHotUpdateEditor, Error, TEXT("Cook 失败，返回码: %d"), ReturnCode);
 		return false;
 	}

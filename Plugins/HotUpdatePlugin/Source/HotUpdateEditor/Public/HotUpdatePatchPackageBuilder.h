@@ -96,8 +96,9 @@ private:
 	/**
 	 * Cook 资源
 	 * 使用子进程执行 Cook，避免在当前 Editor 进程中调用 CookCommandlet 导致的平台冲突
+	 * @param AssetsToCook 指定要 Cook 的资源路径列表，为空则全量 Cook
 	 */
-	bool CookAssets();
+	bool CookAssets(const TArray<FString>& AssetsToCook = TArray<FString>());
 
 	/**
 	 * 编译项目
