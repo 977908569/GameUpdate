@@ -45,14 +45,8 @@ public:
 	/** 打包进度回调 */
 	void OnPackagingProgress(const FHotUpdatePackageProgress& Progress);
 
-	/** 保存为基础版本 */
-	FReply OnSaveAsBaseVersionClicked();
-
 	/** 刷新已保存的基础版本列表 */
 	void RefreshSavedBaseVersions();
-
-	/** 检查是否可以保存为基础版本 */
-	bool CanSaveAsBaseVersion() const;
 
 private:
 	/** 创建左侧配置面板 */
@@ -267,18 +261,6 @@ private:
 
 	/** 当前选择的版本 */
 	TSharedPtr<FHotUpdateVersionSelectItem> SelectedVersion;
-
-	/** 保存为基础版本按钮 */
-	TSharedPtr<SButton> SaveAsBaseVersionButton;
-
-	/** 最近一次打包结果（用于保存基础版本） */
-	FHotUpdatePackageResult LastPackageResult;
-
-	/** 最近一次打包使用的资源路径 */
-	TArray<FString> LastPackageAssetPaths;
-
-	/** 最近一次打包使用的配置 */
-	FHotUpdatePackageConfig LastPackageConfig;
 
 private:
 	/** 刷新版本选择选项 */

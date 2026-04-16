@@ -846,17 +846,6 @@ TSharedRef<SWidget> SHotUpdatePackagingPanel::CreateProgressAndActions()
 			[
 				SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.Padding(0, 0, 4, 0)
-				[
-					SAssignNew(SaveAsBaseVersionButton, SButton)
-					.Text(LOCTEXT("SaveAsBaseVersion", "保存为基础版本"))
-					.ToolTipText(LOCTEXT("SaveAsBaseVersionTooltip", "将最近一次打包结果保存为基础版本，供后续增量打包使用"))
-					.ButtonStyle(FAppStyle::Get(), "Button")
-					.IsEnabled(this, &SHotUpdatePackagingPanel::CanSaveAsBaseVersion)
-					.OnClicked(this, &SHotUpdatePackagingPanel::OnSaveAsBaseVersionClicked)
-				]
-				+ SHorizontalBox::Slot()
 				.FillWidth(1.0f)
 				[
 					SNew(SSpacer)
@@ -1073,10 +1062,6 @@ void SHotUpdatePackagingPanel::OnPackagingComplete(const FHotUpdatePackageResult
 
 	if (Result.bSuccess)
 	{
-		// 保存最近一次打包结果，用于"保存为基础版本"功能
-		LastPackageResult = Result;
-		LastPackageAssetPaths = AssetPaths;
-		LastPackageConfig = PackageConfig;
 
 		FString SuccessMsg = FString::Printf(
 			TEXT("打包成功! 文件: %s, 大小: %.2f MB, 资源数: %d"),
@@ -1574,67 +1559,6 @@ void SHotUpdatePackagingPanel::RefreshSavedBaseVersions()
 	RefreshVersionSelectOptions();
 }
 
-bool SHotUpdatePackagingPanel::CanSaveAsBaseVersion() const
-{
-	// 只有打包成功后才能保存为基础版本
-	return LastPackageResult.bSuccess && !bIsPackaging;
-}
-
-FReply SHotUpdatePackagingPanel::OnSaveAsBaseVersionClicked()
-{
-	if (!LastPackageResult.bSuccess)
-	{
-		StatusTextBlock->SetText(LOCTEXT("NoPackageResult", "没有可保存的打包结果"));
-		StatusTextBlock->SetColorAndOpacity(FHotUpdateEditorStyle::GetErrorColor());
-		return FReply::Handled();
-	}
-
-	if (LastPackageConfig.VersionString.IsEmpty())
-	{
-		StatusTextBlock->SetText(LOCTEXT("NoVersionString", "版本号为空，无法保存为基础版本"));
-		StatusTextBlock->SetColorAndOpacity(FHotUpdateEditorStyle::GetErrorColor());
-		return FReply::Handled();
-	}
-
-	// 注册版本信息
-	UHotUpdateVersionManager* VersionManager = NewObject<UHotUpdateVersionManager>();
-
-	FHotUpdateEditorVersionInfo VersionInfo;
-	VersionInfo.VersionString = LastPackageConfig.VersionString;
-	VersionInfo.PackageKind = EHotUpdatePackageKind::Base;
-	VersionInfo.Platform = LastPackageConfig.Platform;
-	VersionInfo.CreatedTime = FDateTime::Now();
-	VersionInfo.AssetCount = LastPackageResult.AssetCount;
-	VersionInfo.PackageSize = LastPackageResult.FileSize;
-
-	if (LastPackageResult.bSuccess)
-	{
-		VersionInfo.ManifestPath = LastPackageResult.ManifestFilePath;
-	}
-
-	bool bSuccess = VersionManager->RegisterVersion(VersionInfo);
-
-	if (bSuccess)
-	{
-		FString SuccessMsg = FString::Printf(TEXT("基础版本保存成功: %s"), *LastPackageConfig.VersionString);
-		StatusTextBlock->SetText(FText::FromString(SuccessMsg));
-		StatusTextBlock->SetColorAndOpacity(FHotUpdateEditorStyle::GetSuccessColor());
-
-		// 刷新基础版本列表
-		RefreshSavedBaseVersions();
-
-		// 显示成功通知
-		ShowNotification(FText::FromString(SuccessMsg), SNotificationItem::CS_Success);
-	}
-	else
-	{
-		StatusTextBlock->SetText(LOCTEXT("SaveFailed", "保存基础版本失败"));
-		StatusTextBlock->SetColorAndOpacity(FHotUpdateEditorStyle::GetErrorColor());
-		ShowNotification(LOCTEXT("SaveFailed", "保存基础版本失败"), SNotificationItem::CS_Fail);
-	}
-
-	return FReply::Handled();
-}
 
 TSharedRef<SWidget> SHotUpdatePackagingPanel::CreateChunkSettings()
 {
