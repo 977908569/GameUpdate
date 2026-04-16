@@ -15,6 +15,7 @@
 #include "Misc/App.h"
 #include "Misc/SecureHash.h"
 #include "JsonObjectConverter.h"
+#include "Interfaces/IPluginManager.h"
 
 UHotUpdatePatchPackageBuilder::UHotUpdatePatchPackageBuilder()
 	: bIsBuilding(false)
@@ -1567,133 +1568,152 @@ FString UHotUpdatePatchPackageBuilder::GetAssetDiskPath(const FString& AssetPath
 {
 	if (CookedPlatformDir.IsEmpty())
 	{
-		UE_LOG(LogHotUpdateEditor, Error, TEXT("GetAssetDiskPath: CookedPlatformDir 不能为空，必须指定 Cooked 平台目录"));
+		UE_LOG(LogHotUpdateEditor, Error, TEXT("GetAssetDiskPath: CookedPlatformDir 不能为空"));
 		return TEXT("");
 	}
 
-	FString ResolvedCookedDir = CookedPlatformDir;
-
-	// 使用 FPackageName 的 mount point 机制解析路径，支持 /Game/、/Engine/、插件路径等所有类型
-	// FPackageName 返回的路径基于项目根目录（如 ../../../GameUpdate/Content/... 或 ../../../Engine/Content/...）
-	// 需要将其映射到 Cooked 目录结构
+	// 通过 FPackageName 将长包名解析为磁盘路径，再映射到 Cooked 目录结构
+	// 目标: /Game/X -> {ProjectName}/Content/X, /Engine/X -> Engine/Content/X
+	//       引擎插件 -> Engine/Plugins/.../Content/X, 项目插件 -> {ProjectName}/Plugins/.../Content/X
 	FString ResolvedPath;
 	if (!FPackageName::TryConvertLongPackageNameToFilename(AssetPath, ResolvedPath, TEXT("")))
 	{
 		return TEXT("");
 	}
 
-	// ResolvedPath 可能是绝对路径或相对路径：
-	// UE5.7+ 返回绝对路径: E:/Project/Content/X 或 E:/Engine/Content/X
-	// 旧版返回相对路径: ../../../{ProjectName}/Content/X 或 ../../../Engine/Content/X
-	// 需要统一转换为 Cooked 目录结构下的相对路径:
-	//   /Game/  -> {ProjectName}/Content/X
-	//   /Engine/ -> Engine/Content/X
-	//   /{Plugin}/ -> {Plugin}/Content/X
 	FString RelativePath;
 
 	if (ResolvedPath.StartsWith(TEXT("../../../")))
 	{
-		// 旧版相对路径格式: ../../../{ProjectName}/Content/X
-		RelativePath = ResolvedPath.Mid(9); // 去掉 "../../../"
+		// 旧版相对路径: ../../../{ProjectName}/Content/X -> {ProjectName}/Content/X
+		RelativePath = ResolvedPath.Mid(9);
+	}
+	else if (ResolvedPath.StartsWith(TEXT("../../")))
+	{
+		// 插件相对路径: ../../Plugins/Category/PluginName/Content/X
+		// 通过 IPluginManager::GetType() 区分引擎插件与项目插件
+		FString Suffix = ResolvedPath.Mid(6); // 去掉 "../../"
+
+		FString PluginName;
+		{
+			FString Rest = AssetPath.Mid(1);
+			int32 SlashIdx;
+			if (Rest.FindChar(TEXT('/'), SlashIdx))
+				PluginName = Rest.Left(SlashIdx);
+			else
+				PluginName = Rest;
+		}
+
+		bool bIsProjectPlugin = false;
+		if (!PluginName.IsEmpty())
+		{
+			TArray<TSharedRef<IPlugin>> Plugins = IPluginManager::Get().GetEnabledPlugins();
+			for (const TSharedRef<IPlugin>& P : Plugins)
+			{
+				if (P.Get().GetName() == PluginName)
+				{
+					EPluginType Type = P.Get().GetType();
+					bIsProjectPlugin = (Type == EPluginType::Project || Type == EPluginType::Mod);
+					break;
+				}
+			}
+		}
+
+		if (bIsProjectPlugin)
+			RelativePath = FString(FApp::GetProjectName()) / Suffix;
+		else
+			RelativePath = TEXT("Engine") / Suffix;
+
+		if (PluginName.IsEmpty())
+		{
+			UE_LOG(LogHotUpdateEditor, Warning, TEXT("GetAssetDiskPath: 无法确定插件类型，默认引擎路径: %s"), *AssetPath);
+		}
 	}
 	else
 	{
-		// 绝对路径格式: 需要根据 mount point 提取相对部分
-		// /Game/ 的绝对路径: {ProjectDir}/Content/X -> 需要提取 {ProjectName}/Content/X
-		// /Engine/ 的绝对路径: {EngineDir}/Content/X -> 需要提取 Engine/Content/X
+		// 绝对路径: 根据路径前缀提取相对部分
+		auto NormalizeDir = [](FString Dir) { FPaths::NormalizeDirectoryName(Dir); return Dir; };
 
 		if (AssetPath.StartsWith(TEXT("/Game/")))
 		{
-			// 项目资源: 绝对路径 = {ProjectDir}/Content/...
-			// Cooked 目录结构: {CookedPlatformDir}/{ProjectName}/Content/...
-			// 需要提取 Content/ 之后的部分，然后拼接 {ProjectName}/Content/...
-			FString ProjectContentDir = FPaths::ProjectContentDir();
-			FString NormalizedProjectDir = ProjectContentDir;
-			FPaths::NormalizeDirectoryName(NormalizedProjectDir);
-
-			if (ResolvedPath.StartsWith(NormalizedProjectDir))
-			{
-				// 提取 Content/ 之后的部分
-				FString Suffix = ResolvedPath.RightChop(NormalizedProjectDir.Len());
-				// 拼接: {ProjectName}/Content/{Suffix}
-				RelativePath = FString(FApp::GetProjectName()) / TEXT("Content") + Suffix;
-			}
+			FString ProjectContentDir = NormalizeDir(FPaths::ProjectContentDir());
+			if (ResolvedPath.StartsWith(ProjectContentDir))
+				RelativePath = FString(FApp::GetProjectName()) / TEXT("Content") + ResolvedPath.RightChop(ProjectContentDir.Len());
 			else
-			{
-				// 回退: 尝试从 /Game/ 替换
-				RelativePath = AssetPath.Mid(1) / TEXT("");  // /Game/X -> Game/X
-				// 但这不对，因为 Cooked 目录结构是 GameUpdate/Content/X，不是 Game/X
-				// 使用更可靠的方式
-				FString AssetPathWithoutGame = AssetPath.Mid(5); // 去掉 /Game
-				RelativePath = FString(FApp::GetProjectName()) / TEXT("Content") + AssetPathWithoutGame;
-			}
+				RelativePath = FString(FApp::GetProjectName()) / TEXT("Content") + AssetPath.Mid(5);
 		}
 		else if (AssetPath.StartsWith(TEXT("/Engine/")))
 		{
-			// 引擎资源: 绝对路径 = {EngineDir}/Content/...
-			FString EngineContentDir = FPaths::EngineContentDir();
-			FString NormalizedEngineDir = EngineContentDir;
-			FPaths::NormalizeDirectoryName(NormalizedEngineDir);
-
-			if (ResolvedPath.StartsWith(NormalizedEngineDir))
-			{
-				FString Suffix = ResolvedPath.RightChop(NormalizedEngineDir.Len());
-				RelativePath = TEXT("Engine/Content") + Suffix;
-			}
+			FString EngineContentDir = NormalizeDir(FPaths::EngineContentDir());
+			if (ResolvedPath.StartsWith(EngineContentDir))
+				RelativePath = TEXT("Engine/Content") + ResolvedPath.RightChop(EngineContentDir.Len());
 			else
-			{
-				FString AssetPathWithoutEngine = AssetPath.Mid(8); // 去掉 /Engine/
-				RelativePath = TEXT("Engine/Content") / AssetPathWithoutEngine;
-			}
+				RelativePath = TEXT("Engine/Content") / AssetPath.Mid(8);
 		}
 		else
 		{
-			// 插件等其他路径: 使用 TryConvert 的结果
-			// 尝试从项目根目录提取相对路径
-			FString ProjectDir = FPaths::ProjectDir();
-			FString NormalizedProjectDir = ProjectDir;
-			FPaths::NormalizeDirectoryName(NormalizedProjectDir);
-
-			if (ResolvedPath.StartsWith(NormalizedProjectDir))
+			// 绝对路径的插件: 从项目或引擎根目录提取相对路径
+			FString ProjectDir = NormalizeDir(FPaths::ProjectDir());
+			if (ResolvedPath.StartsWith(ProjectDir))
 			{
-				RelativePath = ResolvedPath.RightChop(NormalizedProjectDir.Len());
+				// 提取相对于项目根目录的路径（如 Plugins/TestPlugin/Content/X）
+				FString PathUnderProject = ResolvedPath.RightChop(ProjectDir.Len());
+
+				// 判断是否为项目插件（需要添加 {ProjectName}/ 前缀以匹配 Cooked 目录结构）
+				FString PluginName;
+				{
+					FString Rest = AssetPath.Mid(1);
+					int32 SlashIdx;
+					if (Rest.FindChar(TEXT('/'), SlashIdx))
+						PluginName = Rest.Left(SlashIdx);
+					else
+						PluginName = Rest;
+				}
+
+				bool bIsProjectPlugin = false;
+				if (!PluginName.IsEmpty())
+				{
+					TArray<TSharedRef<IPlugin>> Plugins = IPluginManager::Get().GetEnabledPlugins();
+					for (const TSharedRef<IPlugin>& P : Plugins)
+					{
+						if (P.Get().GetName() == PluginName)
+						{
+							EPluginType Type = P.Get().GetType();
+							bIsProjectPlugin = (Type == EPluginType::Project || Type == EPluginType::Mod);
+							break;
+						}
+					}
+				}
+
+				if (bIsProjectPlugin)
+					RelativePath = FString(FApp::GetProjectName()) / PathUnderProject;
+				else
+					RelativePath = TEXT("Engine") / PathUnderProject;
 			}
 			else
 			{
-				FString EngineDir = FPaths::EngineDir();
-				FString NormalizedEngineDir2 = EngineDir;
-				FPaths::NormalizeDirectoryName(NormalizedEngineDir2);
-
-				if (ResolvedPath.StartsWith(NormalizedEngineDir2))
-				{
-					RelativePath = ResolvedPath.RightChop(NormalizedEngineDir2.Len());
-				}
+				FString EngineDir = NormalizeDir(FPaths::EngineDir());
+				if (ResolvedPath.StartsWith(EngineDir))
+					RelativePath = ResolvedPath.RightChop(EngineDir.Len());
 				else
 				{
-					// 无法解析，返回空
-					UE_LOG(LogHotUpdateEditor, Warning, TEXT("GetAssetDiskPath: Cannot resolve path for %s (ResolvedPath=%s)"), *AssetPath, *ResolvedPath);
+					UE_LOG(LogHotUpdateEditor, Warning, TEXT("GetAssetDiskPath: 无法解析路径 %s (Resolved=%s)"), *AssetPath, *ResolvedPath);
 					return TEXT("");
 				}
 			}
 		}
 	}
 
-	// Cook 目录中不存在则返回空，不 fallback 到源码目录
-	FString CookedMapPath = FPaths::Combine(ResolvedCookedDir, RelativePath + TEXT(".umap"));
+	// 在 Cooked 目录中查找 .umap 或 .uasset
+	FString CookedMapPath = FPaths::Combine(CookedPlatformDir, RelativePath + TEXT(".umap"));
 	if (FPaths::FileExists(*CookedMapPath))
-	{
 		return CookedMapPath;
-	}
 
-	// 再尝试 .uasset（普通资源）
-	FString CookedAssetPath = FPaths::Combine(ResolvedCookedDir, RelativePath + TEXT(".uasset"));
+	FString CookedAssetPath = FPaths::Combine(CookedPlatformDir, RelativePath + TEXT(".uasset"));
 	if (FPaths::FileExists(*CookedAssetPath))
-	{
 		return CookedAssetPath;
-	}
 
 
-	// Cook 目录中不存在则返回空，不 fallback 到源码目录
 	return TEXT("");
 }
 

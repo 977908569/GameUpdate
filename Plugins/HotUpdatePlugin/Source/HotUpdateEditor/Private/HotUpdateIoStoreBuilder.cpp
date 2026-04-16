@@ -264,47 +264,46 @@ FString UHotUpdateIoStoreBuilder::GetPakInternalPath(const FString& AssetPath, c
 		PakPath = TEXT("/") + PakPath;
 	}
 
-	// 根据资源类型添加正确的扩展名
-	// uasset 是普通资源，umap 是地图，uexp/ubulk 是配套文件
+	// ========== 步骤1：确定文件扩展名 ==========
+	FString Extension;
 	if (PakPath.EndsWith(TEXT(".uasset")) || PakPath.EndsWith(TEXT(".umap")) ||
 		PakPath.EndsWith(TEXT(".uexp")) || PakPath.EndsWith(TEXT(".ubulk")) ||
 		PakPath.EndsWith(TEXT(".ubulk2")))
 	{
-		// 已经有扩展名，直接使用
+		// 已有扩展名，从路径中分离出基础包名用于后续挂载点解析
+		int32 DotIndex;
+		if (PakPath.FindChar('.', DotIndex))
+		{
+			Extension = PakPath.Mid(DotIndex + 1);
+			PakPath = PakPath.Left(DotIndex);
+		}
 	}
 	else
 	{
 		// 优先从磁盘路径获取实际扩展名
 		if (!DiskPath.IsEmpty())
 		{
-			FString Extension = FPaths::GetExtension(DiskPath);
-			if (!Extension.IsEmpty())
-			{
-				PakPath += TEXT(".") + Extension;
-			}
-			else
-			{
-				PakPath += TEXT(".uasset");
-			}
+			Extension = FPaths::GetExtension(DiskPath);
 		}
-		else
+		if (Extension.IsEmpty())
 		{
 			// 回退：地图用 .umap，其他用 .uasset
 			if (PakPath.Contains(TEXT("/Maps/")) || PakPath.Contains(TEXT("/Map/")))
 			{
-				PakPath += TEXT(".umap");
+				Extension = TEXT("umap");
 			}
 			else
 			{
-				PakPath += TEXT(".uasset");
+				Extension = TEXT("uasset");
 			}
 		}
 	}
 
+	// ========== 步骤2：挂载点映射（不含扩展名） ==========
 	// 将虚拟路径 /Game/... 转换为标准 pak Dest 格式 ../../../{ProjectName}/Content/...
 	// /Game/ 映射到项目的 Content 目录
-	// 标准 UE5 pak 格式: mount point "../../../" + "GameUpdate/Content/TopDown/..."
-	// 这样运行时引擎能正确匹配绝对路径
+	// /Engine/ 映射到引擎的 Content 目录
+	// 插件路径需要通过 FPackageName 解析，区分引擎插件和项目插件
 	FString ProjectName = FApp::GetProjectName();
 	if (PakPath.StartsWith(TEXT("/Game/")))
 	{
@@ -316,8 +315,56 @@ FString UHotUpdateIoStoreBuilder::GetPakInternalPath(const FString& AssetPath, c
 	}
 	else if (PakPath.StartsWith(TEXT("/")) && !PakPath.StartsWith(TEXT("/Game/")) && !PakPath.StartsWith(TEXT("/Engine/")))
 	{
-		// 插件路径：/PluginName/SubPath -> ../../../Engine/Plugins/PluginName/SubPath
-		PakPath = FString::Printf(TEXT("../../../Engine/Plugins/%s"), *PakPath.Mid(1));
+		// 插件路径：使用 FPackageName 解析实际文件路径，区分引擎插件与项目插件
+		// 引擎插件: /NNE/X -> ../../../Engine/Plugins/Runtime/NNE/Content/X
+		// 项目插件: /MyPlugin/X -> ../../../{ProjectName}/Plugins/MyPlugin/Content/X
+		FString ResolvedPath;
+		if (FPackageName::TryConvertLongPackageNameToFilename(PakPath, ResolvedPath, TEXT("")))
+		{
+			FString NormalizedResolved = ResolvedPath;
+			FPaths::NormalizeDirectoryName(NormalizedResolved);
+
+			FString NormalizedEngineDir = FPaths::EngineDir();
+			FPaths::NormalizeDirectoryName(NormalizedEngineDir);
+
+			FString NormalizedProjectDir = FPaths::ProjectDir();
+			FPaths::NormalizeDirectoryName(NormalizedProjectDir);
+
+			if (NormalizedResolved.StartsWith(NormalizedEngineDir))
+			{
+				// 引擎插件：提取相对于引擎目录的路径
+				// Resolved: E:/Engine/Plugins/Runtime/NNE/Content/X
+				// Relative: Plugins/Runtime/NNE/Content/X
+				FString RelativePath = NormalizedResolved.RightChop(NormalizedEngineDir.Len());
+				PakPath = FString::Printf(TEXT("../../../Engine/%s"), *RelativePath);
+			}
+			else if (NormalizedResolved.StartsWith(NormalizedProjectDir))
+			{
+				// 项目插件：提取相对于项目目录的路径
+				// Resolved: E:/Project/Plugins/MyPlugin/Content/X
+				// Relative: Plugins/MyPlugin/Content/X
+				FString RelativePath = NormalizedResolved.RightChop(NormalizedProjectDir.Len());
+				PakPath = FString::Printf(TEXT("../../../%s/%s"), *ProjectName, *RelativePath);
+			}
+			else
+			{
+				// 回退：无法分类，按引擎插件处理
+				PakPath = FString::Printf(TEXT("../../../Engine/Plugins/%s"), *PakPath.Mid(1));
+				UE_LOG(LogHotUpdateEditor, Warning, TEXT("GetPakInternalPath: 无法分类插件路径 %s，默认按引擎插件处理"), *AssetPath);
+			}
+		}
+		else
+		{
+			// FPackageName 解析失败，回退到引擎插件映射
+			PakPath = FString::Printf(TEXT("../../../Engine/Plugins/%s"), *PakPath.Mid(1));
+			UE_LOG(LogHotUpdateEditor, Warning, TEXT("GetPakInternalPath: FPackageName 无法解析 %s，默认按引擎插件处理"), *AssetPath);
+		}
+	}
+
+	// ========== 步骤3：追加扩展名 ==========
+	if (!Extension.IsEmpty())
+	{
+		PakPath += TEXT(".") + Extension;
 	}
 
 	// 确保使用正斜杠

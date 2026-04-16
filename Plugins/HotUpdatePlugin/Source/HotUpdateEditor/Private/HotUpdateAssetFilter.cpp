@@ -59,11 +59,12 @@ void FHotUpdateAssetFilter::FilterAssets(
 		UE_LOG(LogHotUpdateAssetFilter, Log, TEXT("依赖收集后，白名单资产数: %d (添加依赖数: %d)"), FinalWhitelist.Num(), FinalWhitelist.Num() - WhitelistSet.Num());
 	}
 
-	// 4. 过滤非 /Game/ 路径的资产（只保留游戏内容）
+	// 4. 过滤非资产路径（保留 /Game/、/Engine/、插件路径，排除 /Script/）
 	TSet<FString> FilteredWhitelist;
 	for (const FString& Asset : FinalWhitelist)
 	{
-		if (Asset.StartsWith(TEXT("/Game/")) || Asset.StartsWith(TEXT("/PluginContent/")) || Asset.StartsWith(TEXT("/Engine/")))
+		if (Asset.StartsWith(TEXT("/Game/")) || Asset.StartsWith(TEXT("/Engine/")) ||
+			(Asset.StartsWith(TEXT("/")) && !Asset.StartsWith(TEXT("/Script/"))))
 		{
 			FilteredWhitelist.Add(Asset);
 		}
@@ -298,8 +299,10 @@ void FHotUpdateAssetFilter::GetDependenciesRecursive(
 		{
 			FString DepStr = Dep.ToString();
 
-			// 只处理 /Game/ 和 /Engine/ 下的资产
-			if (!DepStr.StartsWith(TEXT("/Game/")) && !DepStr.StartsWith(TEXT("/Engine/")))
+			// 只处理资产路径：/Game/、/Engine/、插件路径（如 /NNE/、/Water/）
+			// 排除 /Script/ 路径（C++ 类型引用，不是资产）
+			if (!(DepStr.StartsWith(TEXT("/Game/")) || DepStr.StartsWith(TEXT("/Engine/")) ||
+				(DepStr.StartsWith(TEXT("/")) && !DepStr.StartsWith(TEXT("/Script/")))))
 			{
 				continue;
 			}

@@ -189,8 +189,11 @@ void UHotUpdateAssetManager::CollectDependenciesRecursive(
 		return;
 	}
 
-	// Only collect dependencies for Game and Engine assets
-	if (!PackagePath.StartsWith(TEXT("/Game/")) && !PackagePath.StartsWith(TEXT("/Engine/")))
+	// Only collect dependencies for valid asset paths
+	// Includes /Game/ (project), /Engine/ (engine), and plugin paths (e.g. /NNE/, /Water/)
+	// Excludes /Script/ (C++ type references, not assets)
+	if (!(PackagePath.StartsWith(TEXT("/Game/")) || PackagePath.StartsWith(TEXT("/Engine/")) ||
+		(PackagePath.StartsWith(TEXT("/")) && !PackagePath.StartsWith(TEXT("/Script/")))))
 	{
 		return;
 	}

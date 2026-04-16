@@ -21,6 +21,7 @@
 #include "AssetRegistry/IAssetRegistry.h"
 #include "Settings/ProjectPackagingSettings.h"
 #include "Misc/PackageName.h"
+#include "Interfaces/IPluginManager.h"
 
 UHotUpdateBaseVersionBuilder::UHotUpdateBaseVersionBuilder()
 	: bIsBuilding(false)
@@ -758,10 +759,13 @@ bool UHotUpdateBaseVersionBuilder::SaveResourceHashesInGameThread()
 	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
 	IAssetRegistry* AssetRegistry = &AssetRegistryModule.Get();
 
-	// 等待 AssetRegistry 加载完成
-	if (AssetRegistry->IsLoadingAssets())
+	// 强制刷新 AssetRegistry，确保依赖数据完整（Commandlet 模式下缓存可能不包含完整依赖）
+	AssetRegistry->SearchAllAssets(true);
+
+	// 等待搜索完成
+	while (AssetRegistry->IsLoadingAssets())
 	{
-		AssetRegistry->SearchAllAssets(true);
+		FPlatformProcess::Sleep(0.1f);
 	}
 
 	// 从打包设置收集资源
@@ -813,18 +817,20 @@ bool UHotUpdateBaseVersionBuilder::SaveResourceHashesInGameThread()
 		}
 	}
 
-	// 3. 收集资源依赖
+	// 3. 收集资源依赖（Hard + Soft，因为 Cooker 会同时打包软引用资源）
 	TSet<FString> UniqueAssetPaths(AllAssetPaths);
 	for (const FString& AssetPath : AllAssetPaths)
 	{
 		TArray<FName> Dependencies;
-		if (AssetRegistry->GetDependencies(FName(*AssetPath), Dependencies))
+		if (AssetRegistry->GetDependencies(FName(*AssetPath), Dependencies, UE::AssetRegistry::EDependencyCategory::Package))
 		{
 			for (const FName& Dep : Dependencies)
 			{
 				FString DepStr = Dep.ToString();
-				// 只包含 /Game 和 /Engine 目录下的资源
-				if (DepStr.StartsWith(TEXT("/Game/")) || DepStr.StartsWith(TEXT("/Engine/")))
+				// 包含 /Game（项目）、/Engine（引擎）、插件路径（如 /NNE/、/Water/）
+				// 排除 /Script/ 路径（C++ 类型引用，不是资产）
+				if (DepStr.StartsWith(TEXT("/Game/")) || DepStr.StartsWith(TEXT("/Engine/")) ||
+					(DepStr.StartsWith(TEXT("/")) && !DepStr.StartsWith(TEXT("/Script/"))))
 				{
 					UniqueAssetPaths.Add(DepStr);
 				}
@@ -833,6 +839,7 @@ bool UHotUpdateBaseVersionBuilder::SaveResourceHashesInGameThread()
 	}
 
 	AssetPaths = UniqueAssetPaths.Array();
+
 
 	// ========== 应用最小包过滤 ==========
 	TArray<FString> PatchAssets; // 非白名单资源（热更包）
@@ -876,6 +883,14 @@ bool UHotUpdateBaseVersionBuilder::SaveResourceHashesInGameThread()
 		if (!DiskPath.IsEmpty() && FPaths::FileExists(*DiskPath))
 		{
 			AssetDiskPaths.Add(AssetPath, DiskPath);
+		}
+		else
+		{
+			if (!AssetPath.StartsWith(TEXT("/Game/")) && !AssetPath.StartsWith(TEXT("/Engine/")) && !AssetPath.StartsWith(TEXT("/Script/")))
+			{
+				UE_LOG(LogHotUpdateEditor, Warning, TEXT("插件资源磁盘路径解析失败: AssetPath=%s, DiskPath=%s"),
+					*AssetPath, DiskPath.IsEmpty() ? TEXT("(empty)") : *DiskPath);
+			}
 		}
 	}
 
