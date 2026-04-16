@@ -10,7 +10,6 @@
 #include "Core/HotUpdateChunkTypes.h"
 #include "HotUpdateEditorTypes.generated.h"
 
-class UHotUpdateBasePackageBuilder;
 class UHotUpdatePatchPackageBuilder;
 
 /**
@@ -413,89 +412,6 @@ struct HOTUPDATEEDITOR_API FHotUpdateChunkDefinition
 	}
 };
 
-/**
- * 基础包构建配置
- */
-USTRUCT(BlueprintType)
-struct HOTUPDATEEDITOR_API FHotUpdateBasePackageConfig
-{
-	GENERATED_BODY()
-
-	/// 版本号（格式: Major.Minor.0.0）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Version")
-	FString VersionString;
-
-	/// 目标平台
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
-	EHotUpdatePlatform Platform;
-
-	/// 资源收集类型
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
-	EHotUpdatePackageType PackageType;
-
-	/// 资源路径列表
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
-	TArray<FString> AssetPaths;
-
-	/// 是否包含依赖资源
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
-	bool bIncludeDependencies;
-
-	/// 输出目录
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
-	FDirectoryPath OutputDirectory;
-
-	/// IoStore 配置
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IoStore")
-	FHotUpdateIoStoreConfig IoStoreConfig;
-
-	/// 分包策略
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
-	EHotUpdateChunkStrategy ChunkStrategy;
-
-	/// 目录分包规则列表
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
-	TArray<FHotUpdateDirectoryChunkRule> DirectoryChunkRules;
-
-	/// 按大小分包的详细配置
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
-	FHotUpdateSizeBasedChunkConfig SizeBasedConfig;
-
-	/// 最大 Chunk 大小（MB），简化配置（0 表示无限制）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk", meta = (ClampMin = "0"))
-	int32 MaxChunkSizeMB;
-
-	/// 最小包配置
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MinimalPackage")
-	FHotUpdateMinimalPackageConfig MinimalPackageConfig;
-
-	/// 是否跳过编译步骤（默认 false = 编译后再 Cook）
-	/// 编译确保 Cook 使用最新的游戏代码，避免使用旧代码逻辑
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
-	bool bSkipBuild;
-
-	/// 是否跳过 Cook 步骤（默认 false = 先 Cook 再打包）
-	/// 不 Cook 的话，打包会使用旧的 cooked 文件，导致修改不生效
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
-	bool bSkipCook;
-
-	/// 构建配置（Development/Shipping）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
-	EHotUpdateBuildConfiguration BuildConfiguration;
-
-	FHotUpdateBasePackageConfig()
-		: Platform(EHotUpdatePlatform::Windows)
-		, PackageType(EHotUpdatePackageType::FromPackagingSettings)
-		, bIncludeDependencies(true)
-		, ChunkStrategy(EHotUpdateChunkStrategy::PrimaryAsset)
-		, MaxChunkSizeMB(256)
-		, bSkipBuild(false)
-		, bSkipCook(false)
-		, BuildConfiguration(EHotUpdateBuildConfiguration::Development)
-	{
-		SizeBasedConfig.MaxChunkSizeMB = 256;
-	}
-};
 
 /**
  * 更新包构建配置
@@ -588,69 +504,6 @@ struct HOTUPDATEEDITOR_API FHotUpdatePatchPackageConfig
 	}
 };
 
-/**
- * 基础包构建结果
- */
-USTRUCT(BlueprintType)
-struct HOTUPDATEEDITOR_API FHotUpdateBasePackageResult
-{
-	GENERATED_BODY()
-
-	/// 是否成功
-	UPROPERTY(BlueprintReadOnly, Category = "Result")
-	bool bSuccess;
-
-	/// 输出目录
-	UPROPERTY(BlueprintReadOnly, Category = "Result")
-	FString OutputDirectory;
-
-	/// 主容器文件（.utoc）
-	UPROPERTY(BlueprintReadOnly, Category = "Result")
-	FString MainUtocPath;
-
-	/// 主容器文件（.ucas）
-	UPROPERTY(BlueprintReadOnly, Category = "Result")
-	FString MainUcasPath;
-
-	/// Chunk 容器文件列表
-	UPROPERTY(BlueprintReadOnly, Category = "Result")
-	TArray<FString> ChunkUtocPaths;
-
-	/// Manifest 文件路径
-	UPROPERTY(BlueprintReadOnly, Category = "Result")
-	FString ManifestFilePath;
-
-	/// Chunk Manifest 文件路径
-	UPROPERTY(BlueprintReadOnly, Category = "Result")
-	FString ChunkManifestPath;
-
-	/// 版本号
-	UPROPERTY(BlueprintReadOnly, Category = "Result")
-	FString VersionString;
-
-	/// Chunk 列表
-	UPROPERTY(BlueprintReadOnly, Category = "Result")
-	TArray<FHotUpdateChunkDefinition> Chunks;
-
-	/// 资源总数
-	UPROPERTY(BlueprintReadOnly, Category = "Result")
-	int32 TotalAssetCount;
-
-	/// 总大小
-	UPROPERTY(BlueprintReadOnly, Category = "Result")
-	int64 TotalSize;
-
-	/// 错误信息
-	UPROPERTY(BlueprintReadOnly, Category = "Result")
-	FString ErrorMessage;
-
-	FHotUpdateBasePackageResult()
-		: bSuccess(false)
-		, TotalAssetCount(0)
-		, TotalSize(0)
-	{
-	}
-};
 
 /**
  * 资源差异信息
@@ -985,7 +838,6 @@ enum class EHotUpdateAndroidTextureFormat : uint8
 
 // 打包进度委托
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPackageProgressDelegate, const FHotUpdatePackageProgress&, Progress);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnBasePackageCompleteDelegate, const FHotUpdateBasePackageResult&, Result);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPatchPackageCompleteDelegate, const FHotUpdatePatchPackageResult&, Result);
 
 

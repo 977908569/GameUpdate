@@ -169,35 +169,14 @@ UnrealEditor-Cmd GameUpdate -run=HotUpdate -mode=base -version=1.0.0 \
 #### 代码配置示例
 
 ```cpp
-// 基础包构建配置
-FHotUpdateBasePackageConfig Config;
+// 基础版本构建配置
+FHotUpdateBaseVersionBuildConfig Config;
 Config.VersionString = "1.0.0";
 Config.Platform = EHotUpdatePlatform::Windows;
+Config.BuildConfiguration = EHotUpdateBuildConfiguration::Development;
 
-// 设置分包策略
-Config.ChunkStrategy = EHotUpdateChunkStrategy::Directory;
-
-// 目录分包规则
-FHotUpdateDirectoryChunkRule MapsRule;
-MapsRule.DirectoryPath = "/Game/Maps";
-MapsRule.ChunkName = "Maps";
-MapsRule.ChunkId = 1;
-MapsRule.Priority = 0;  // 最小优先级，最先加载
-MapsRule.MaxSizeMB = 500;  // 最大 500MB
-Config.DirectoryChunkRules.Add(MapsRule);
-
-FHotUpdateDirectoryChunkRule UIRule;
-UIRule.DirectoryPath = "/Game/UI";
-UIRule.ChunkName = "UI";
-UIRule.ChunkId = 2;
-UIRule.Priority = 1;
-Config.DirectoryChunkRules.Add(UIRule);
-
-// 按大小分包配置（用于 Size/Hybrid 策略）
-Config.SizeBasedConfig.MaxChunkSizeMB = 256;
-Config.SizeBasedConfig.ChunkNamePrefix = "Chunk";
-Config.SizeBasedConfig.ChunkIdStart = 100;
-Config.SizeBasedConfig.bSortBySize = true;  // 大资源优先打包
+// 最小包模式配置（可选）
+Config.MinimalPackageConfig.bEnableMinimalPackage = true;
 ```
 
 ### 目录分包规则字段
@@ -363,7 +342,7 @@ A: 增量更新通过 `UHotUpdateIncrementalCalculator` 计算版本差异：
 
 ### Q: 如何自定义分包策略？
 
-A: 在编辑器面板中配置 `DirectoryChunkRules`，或通过代码设置 `FHotUpdateBasePackageConfig` 的 `ChunkStrategy` 和相关参数。
+A: 在编辑器面板中配置 `DirectoryChunkRules`，或通过代码设置 `FHotUpdateBaseVersionBuildConfig` 的相关参数。
 
 ## 故障排除
 

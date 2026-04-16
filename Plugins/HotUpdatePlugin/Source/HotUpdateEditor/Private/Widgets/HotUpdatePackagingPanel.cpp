@@ -5,7 +5,6 @@
 #include "HotUpdateEditor.h"
 #include "HotUpdateEditorSettings.h"
 #include "HotUpdateEditorStyle.h"
-#include "HotUpdateBasePackageBuilder.h"
 #include "HotUpdatePatchPackageBuilder.h"
 #include "HotUpdateVersionManager.h"
 #include "Styling/AppStyle.h"
@@ -83,14 +82,6 @@ void SHotUpdatePackagingPanel::Construct(const FArguments& InArgs)
 	CallbackHandler = NewObject<UHotUpdatePackagingCallbackHandler>();
 	CallbackHandler->AddToRoot();
 	CallbackHandler->OwnerPanel = SharedThis(this);
-
-	// 创建基础包构建器
-	BasePackageBuilder = NewObject<UHotUpdateBasePackageBuilder>();
-	BasePackageBuilder->AddToRoot();
-	BasePackageBuilder->OnProgress.AddDynamic(CallbackHandler, &UHotUpdatePackagingCallbackHandler::OnPackagingProgress);
-	BasePackageBuilder->OnComplete.AddDynamic(CallbackHandler, &UHotUpdatePackagingCallbackHandler::OnBasePackageComplete);
-	UE_LOG(LogHotUpdateEditor, Log, TEXT("  BasePackageBuilder 创建完成, IsBuilding: %s"),
-		BasePackageBuilder->IsBuilding() ? TEXT("true") : TEXT("false"));
 
 	// 创建更新包构建器
 	PatchPackageBuilder = NewObject<UHotUpdatePatchPackageBuilder>();
@@ -938,10 +929,6 @@ FReply SHotUpdatePackagingPanel::OnCloseClicked()
 			return FReply::Handled();
 		}
 
-		if (BasePackageBuilder && BasePackageBuilder->IsBuilding())
-		{
-			BasePackageBuilder->CancelBuild();
-		}
 		if (PatchPackageBuilder && PatchPackageBuilder->IsBuilding())
 		{
 			PatchPackageBuilder->CancelBuild();
@@ -1021,10 +1008,6 @@ FReply SHotUpdatePackagingPanel::OnCancelClicked()
 {
 	if (bIsPackaging)
 	{
-		if (BasePackageBuilder && BasePackageBuilder->IsBuilding())
-		{
-			BasePackageBuilder->CancelBuild();
-		}
 		if (PatchPackageBuilder && PatchPackageBuilder->IsBuilding())
 		{
 			PatchPackageBuilder->CancelBuild();
@@ -1797,10 +1780,6 @@ EVisibility SHotUpdatePackagingPanel::GetAndroidTextureFormatVisibility() const
 
 void SHotUpdatePackagingPanel::CleanupRootReferences()
 {
-	if (BasePackageBuilder)
-	{
-		BasePackageBuilder->RemoveFromRoot();
-	}
 	if (PatchPackageBuilder)
 	{
 		PatchPackageBuilder->RemoveFromRoot();

@@ -19,10 +19,6 @@ public:
 	// 用于 Panel 的回调目标
 	TWeakPtr<SHotUpdatePackagingPanel> OwnerPanel;
 
-	// 基础包完成回调
-	UFUNCTION()
-	void OnBasePackageComplete(const FHotUpdateBasePackageResult& Result);
-
 	// 更新包完成回调
 	UFUNCTION()
 	void OnPatchPackageComplete(const FHotUpdatePatchPackageResult& Result);

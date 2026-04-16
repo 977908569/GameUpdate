@@ -12,7 +12,6 @@
 #include "Widgets/Notifications/SNotificationList.h"
 #include "HotUpdateEditorTypes.h"
 
-class UHotUpdateBasePackageBuilder;
 class UHotUpdatePatchPackageBuilder;
 class UHotUpdatePackagingCallbackHandler;
 class SProgressBar;
@@ -115,9 +114,6 @@ private:
 	/** 创建分包配置区域 */
 	TSharedRef<SWidget> CreateChunkSettings();
 
-	/** 创建打包模式设置区域 */
-	TSharedRef<SWidget> CreatePackagingModeSettings();
-
 	/** 资源选择相关 */
 	FReply OnSelectAssetsClicked();
 	FReply OnSelectDirectoriesClicked();
@@ -159,9 +155,6 @@ private:
 
 	/** 资源路径列表 */
 	TArray<FString> AssetPaths;
-
-	/** 基础包构建器 */
-	TObjectPtr<UHotUpdateBasePackageBuilder> BasePackageBuilder;
 
 	/** 更新包构建器 */
 	TObjectPtr<UHotUpdatePatchPackageBuilder> PatchPackageBuilder;
@@ -242,19 +235,11 @@ private:
 	/** 按大小分包的最大 Chunk 大小输入框 */
 	TSharedPtr<SSpinBox<float>> MaxChunkSizeSpinBox;
 
-	/** 打包模式下拉框 */
-	TSharedPtr<SComboBox<TSharedPtr<EHotUpdatePackagingMode>>> PackagingModeComboBox;
 	/** 跳过 Cook 复选框 */
 	TSharedPtr<SCheckBox> SkipCookCheckBox;
 
 	/** 跳过编译复选框 */
 	TSharedPtr<SCheckBox> SkipBuildCheckBox;
-
-	/** 打包模式选项列表 */
-	TArray<TSharedPtr<EHotUpdatePackagingMode>> PackagingModeOptions;
-
-	/** 当前选择的打包模式 */
-	TSharedPtr<EHotUpdatePackagingMode> SelectedPackagingMode;
 
 	/** 版本选择下拉框 */
 	TSharedPtr<SComboBox<TSharedPtr<FHotUpdateVersionSelectItem>>> VersionSelectComboBox;
