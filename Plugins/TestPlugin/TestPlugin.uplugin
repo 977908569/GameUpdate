@@ -1,0 +1,1 @@
+{"FileVersion": 3, "Version": 1, "VersionName": "1.0.0", "FriendlyName": "Test Plugin", "Description": "Test plugin for verifying project plugin packaging", "Category": "Testing", "CreatedBy": "czm", "CanContainContent": true, "IsBetaVersion": false, "Installed": false, "Modules": [{"Name": "TestPlugin", "Type": "Runtime", "LoadingPhase": "Default"}]}
