@@ -130,7 +130,7 @@ public:
 	FOnApplyComplete OnApplyComplete;
 
 	/// 错误事件
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnError, const FString&, ErrorCode, const FString&, ErrorMessage);
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnError, EHotUpdateError, ErrorType, const FString&, ErrorMessage);
 	UPROPERTY(BlueprintAssignable, Category = "HotUpdate|Events")
 	FOnError OnError;
 
@@ -145,6 +145,9 @@ protected:
 
 	/// 验证下载文件
 	bool VerifyDownloadedFiles();
+
+	/// 构建资源下载基础 URL
+	FString BuildDownloadBaseUrl() const;
 
 	/// 下载进度回调
 	UFUNCTION()

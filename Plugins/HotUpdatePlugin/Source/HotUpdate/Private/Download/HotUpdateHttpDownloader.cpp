@@ -12,26 +12,40 @@
 #include "HAL/PlatformFileManager.h"
 #include "HAL/FileManager.h"
 
+// === FDownloadTask 内部实现 ===
+
+struct UHotUpdateHttpDownloader::FDownloadTask
+{
+	FString Url;
+	FString SavePath;
+	FString TempPath;
+	int64 ExpectedSize;
+	int64 DownloadedSize;
+	int64 ResumeOffset;      // 断点续传起始位置
+	FString ExpectedHash;    // 期望的文件 Hash（SHA1），用于下载后校验
+	bool bIsCompleted;
+	bool bSuccess;
+	int32 RetryCount;        // 当前重试次数
+};
+
+// === UHotUpdateHttpDownloader ===
+
 UHotUpdateHttpDownloader::UHotUpdateHttpDownloader()
 	: MaxConcurrentDownloads(3)
-	, ChunkSize(4 * 1024 * 1024) // 4MB
 	, MaxRetryCount(3)
 	, RetryInterval(2.0f)
-		, DownloadTimeout(300.0f)
-		, bEnableResume(true)
+	, DownloadTimeout(300.0f)
+	, bEnableResume(true)
 	, bIsDownloading(false)
 	, bIsPaused(false)
-	, ActiveRequestCount(0)
-	, DownloadStartTime(0.0)
 	, LastProgressUpdateTime(0.0)
 	, LastDownloadedBytes(0)
 {
 }
 
-void UHotUpdateHttpDownloader::Initialize(int32 InMaxConcurrentDownloads, int32 InChunkSizeMB)
+void UHotUpdateHttpDownloader::Initialize(int32 InMaxConcurrentDownloads)
 {
 	MaxConcurrentDownloads = InMaxConcurrentDownloads;
-	ChunkSize = (int64)InChunkSizeMB * 1024 * 1024;
 
 	// 从 Settings 读取重试配置和超时设置
 	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
@@ -43,22 +57,22 @@ void UHotUpdateHttpDownloader::Initialize(int32 InMaxConcurrentDownloads, int32 
 		bEnableResume = Settings->bEnableResume;
 	}
 
-	UE_LOG(LogHotUpdate, Log, TEXT("HttpDownloader initialized: MaxConcurrent=%d, ChunkSize=%lld, MaxRetry=%d"),
-		MaxConcurrentDownloads, ChunkSize, MaxRetryCount);
+	UE_LOG(LogHotUpdate, Log, TEXT("HttpDownloader initialized: MaxConcurrent=%d, MaxRetry=%d"),
+		MaxConcurrentDownloads, MaxRetryCount);
 }
 
-void UHotUpdateHttpDownloader::AddDownloadTask(const FString& Url, const FString& SavePath, int64 ExpectedSize)
+void UHotUpdateHttpDownloader::AddDownloadTask(const FString& Url, const FString& SavePath, int64 ExpectedSize, const FString& InExpectedHash)
 {
 	TSharedPtr<FDownloadTask> Task = MakeShareable(new FDownloadTask());
 	Task->Url = Url;
 	Task->SavePath = SavePath;
 	Task->TempPath = GetTempFilePath(SavePath);
 	Task->ExpectedSize = ExpectedSize;
+	Task->ExpectedHash = InExpectedHash;
 	Task->DownloadedSize = 0;
 	Task->ResumeOffset = 0;
 	Task->bIsCompleted = false;
 	Task->bSuccess = false;
-	Task->bSupportsResume = false;
 	Task->RetryCount = 0;
 
 	// 检查是否存在未完成的临时文件（断点续传）
@@ -81,7 +95,7 @@ void UHotUpdateHttpDownloader::AddDownloadTasks(const TArray<FHotUpdateFileInfo>
 	{
 		FString FullUrl = BaseUrl / File.FilePath;
 		FString SavePath = SaveDir / File.FilePath;
-		AddDownloadTask(FullUrl, SavePath, File.FileSize);
+		AddDownloadTask(FullUrl, SavePath, File.FileSize, File.FileHash);
 	}
 
 	UE_LOG(LogHotUpdate, Log, TEXT("Added %d download tasks"), Files.Num());
@@ -96,16 +110,16 @@ void UHotUpdateHttpDownloader::AddContainerDownloadTasks(const TArray<FHotUpdate
 		{
 			FString FullUrl = BaseUrl.IsEmpty() ? Container.CustomDownloadUrl : BaseUrl / Container.UtocPath;
 			FString SavePath = SaveDir / Container.UtocPath;
-			AddDownloadTask(FullUrl, SavePath, Container.UtocSize);
+			AddDownloadTask(FullUrl, SavePath, Container.UtocSize, Container.UtocHash);
 			UE_LOG(LogHotUpdate, Log, TEXT("Added container utoc download: %s (%lld bytes)"), *Container.UtocPath, Container.UtocSize);
 		}
 
-		// 下载 .ucas 文件（如果有独立文件）
+		// 下载 .ucas 文件
 		if (!Container.UcasPath.IsEmpty() && Container.UcasSize > 0)
 		{
 			FString FullUrl = BaseUrl.IsEmpty() ? Container.CustomDownloadUrl : BaseUrl / Container.UcasPath;
 			FString SavePath = SaveDir / Container.UcasPath;
-			AddDownloadTask(FullUrl, SavePath, Container.UcasSize);
+			AddDownloadTask(FullUrl, SavePath, Container.UcasSize, Container.UcasHash);
 			UE_LOG(LogHotUpdate, Log, TEXT("Added container ucas download: %s (%lld bytes)"), *Container.UcasPath, Container.UcasSize);
 		}
 	}
@@ -123,8 +137,7 @@ void UHotUpdateHttpDownloader::StartDownload()
 
 	bIsDownloading = true;
 	bIsPaused = false;
-	DownloadStartTime = FPlatformTime::Seconds();
-	LastProgressUpdateTime = DownloadStartTime;
+	LastProgressUpdateTime = FPlatformTime::Seconds();
 	LastDownloadedBytes = 0;
 
 	CurrentProgress = FHotUpdateProgress();
@@ -144,12 +157,33 @@ void UHotUpdateHttpDownloader::StartDownload()
 void UHotUpdateHttpDownloader::PauseDownload()
 {
 	bIsPaused = true;
+
+	// 取消进行中的请求，临时文件保留在磁盘供续传
+	for (TSharedPtr<IHttpRequest>& Request : ActiveRequests)
+	{
+		if (Request.IsValid())
+		{
+			Request->CancelRequest();
+		}
+	}
+
 	UE_LOG(LogHotUpdate, Log, TEXT("Download paused"));
 }
 
 void UHotUpdateHttpDownloader::ResumeDownload()
 {
 	bIsPaused = false;
+
+	// 刷新所有待下载任务的断点续传偏移
+	if (bEnableResume)
+	{
+		for (TSharedPtr<FDownloadTask>& Task : PendingTasks)
+		{
+			Task->ResumeOffset = GetExistingTempFileSize(Task->TempPath);
+			Task->DownloadedSize = Task->ResumeOffset;
+		}
+	}
+
 	ProcessNextTask();
 	UE_LOG(LogHotUpdate, Log, TEXT("Download resumed"));
 }
@@ -206,7 +240,7 @@ void UHotUpdateHttpDownloader::ProcessNextTask()
 	}
 
 	// 启动新任务（不超过最大并发数）
-	while (ActiveRequestCount < MaxConcurrentDownloads && PendingTasks.Num() > 0)
+	while (ActiveRequests.Num() < MaxConcurrentDownloads && PendingTasks.Num() > 0)
 	{
 		TSharedPtr<FDownloadTask> Task = PendingTasks[0];
 		PendingTasks.RemoveAt(0);
@@ -235,7 +269,6 @@ void UHotUpdateHttpDownloader::ProcessNextTask()
 		// 进度更新在 HandleRequestComplete 中进行，暂不支持实时下载进度回调
 
 		ActiveRequests.Add(Request);
-		ActiveRequestCount++;
 
 		UE_LOG(LogHotUpdate, Verbose, TEXT("Starting download: %s"), *Task->Url);
 		Request->ProcessRequest();
@@ -244,8 +277,6 @@ void UHotUpdateHttpDownloader::ProcessNextTask()
 
 void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Request, TSharedPtr<IHttpResponse> Response, bool bSuccess, TSharedPtr<FDownloadTask> Task)
 {
-	ActiveRequestCount--;
-
 	// 从活跃请求列表移除
 	for (int32 i = ActiveRequests.Num() - 1; i >= 0; i--)
 	{
@@ -254,6 +285,15 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 			ActiveRequests.RemoveAt(i);
 			break;
 		}
+	}
+
+	// 区分"暂停导致的取消"和"真正的错误"
+	if (!bSuccess && bIsPaused)
+	{
+		// 暂停导致的请求取消，将任务移回待下载队列，不触发重试和回调
+		ActiveTasks.Remove(Task);
+		PendingTasks.Add(Task);
+		return;
 	}
 
 	// 检查响应状态
@@ -292,6 +332,28 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 
 		if (bSaveSuccess)
 		{
+			// 下载后立即校验 Hash（如果指定了期望 Hash）
+			if (!Task->ExpectedHash.IsEmpty())
+			{
+				FString ActualHash = UHotUpdateFileUtils::CalculateFileHash(Task->TempPath);
+				if (ActualHash != Task->ExpectedHash)
+				{
+					UE_LOG(LogHotUpdate, Error, TEXT("Hash verification failed for %s (expected: %s, actual: %s)"),
+						*Task->SavePath, *Task->ExpectedHash, *ActualHash);
+					// 删除损坏的临时文件
+					IPlatformFile& PF = FPlatformFileManager::Get().GetPlatformFile();
+					PF.DeleteFile(*Task->TempPath);
+					bRequestSuccess = false;
+				}
+				else
+				{
+					UE_LOG(LogHotUpdate, Verbose, TEXT("Hash verified: %s"), *Task->SavePath);
+				}
+			}
+		}
+
+		if (bSaveSuccess && bRequestSuccess)
+		{
 			// 重命名临时文件为最终文件
 			IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
 			if (PlatformFile.FileExists(*Task->SavePath))
@@ -310,6 +372,10 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 				UE_LOG(LogHotUpdate, Error, TEXT("Failed to move temp file to final location: %s"), *Task->SavePath);
 				bRequestSuccess = false;
 			}
+		}
+		else if (bSaveSuccess && !bRequestSuccess)
+		{
+			// Hash 校验失败，已在上面处理
 		}
 		else
 		{
@@ -433,7 +499,6 @@ int64 UHotUpdateHttpDownloader::GetExistingTempFileSize(const FString& TempPath)
 
 bool UHotUpdateHttpDownloader::AppendDataToFile(const FString& FilePath, const TArray<uint8>& Data)
 {
-	// 使用追加模式打开文件
 	FArchive* FileWriter = IFileManager::Get().CreateFileWriter(*FilePath, FILEWRITE_Append);
 	if (!FileWriter)
 	{
@@ -443,7 +508,6 @@ bool UHotUpdateHttpDownloader::AppendDataToFile(const FString& FilePath, const T
 
 	FileWriter->Serialize(const_cast<uint8*>(Data.GetData()), Data.Num());
 
-	// 检查写入是否成功
 	if (FileWriter->IsError())
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("Failed to write data to file: %s"), *FilePath);
@@ -451,15 +515,6 @@ bool UHotUpdateHttpDownloader::AppendDataToFile(const FString& FilePath, const T
 		return false;
 	}
 
-	// 关闭文件前检查是否有错误
-	bool bCloseSuccess = !FileWriter->IsError();
 	delete FileWriter;
-
-	if (!bCloseSuccess)
-	{
-		UE_LOG(LogHotUpdate, Error, TEXT("Error detected when closing file: %s"), *FilePath);
-		return false;
-	}
-
 	return true;
 }

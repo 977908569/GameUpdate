@@ -24,11 +24,11 @@ public:
 
 	/// 初始化下载器
 	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Download")
-	void Initialize(int32 InMaxConcurrentDownloads = 3, int32 InChunkSizeMB = 4);
+	void Initialize(int32 InMaxConcurrentDownloads = 3);
 
 	/// 添加下载任务
 	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Download")
-	void AddDownloadTask(const FString& Url, const FString& SavePath, int64 ExpectedSize = 0);
+	void AddDownloadTask(const FString& Url, const FString& SavePath, int64 ExpectedSize = 0, const FString& InExpectedHash = TEXT(""));
 
 	/// 批量添加下载任务
 	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Download")
@@ -42,7 +42,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Download")
 	void StartDownload();
 
-	/// 暂停下载
+	/// 暂停下载（取消进行中的请求，临时文件保留供续传）
 	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Download")
 	void PauseDownload();
 
@@ -84,20 +84,8 @@ public:
 	FOnFileComplete OnFileComplete;
 
 protected:
-	/// 内部任务结构
-	struct FDownloadTask
-	{
-		FString Url;
-		FString SavePath;
-		FString TempPath;
-		int64 ExpectedSize;
-		int64 DownloadedSize;
-		int64 ResumeOffset;      // 断点续传起始位置
-		bool bIsCompleted;
-		bool bSuccess;
-		bool bSupportsResume;    // 服务器是否支持断点续传
-		int32 RetryCount;        // 当前重试次数
-	};
+	/// 内部任务结构（前向声明，实现在 cpp 中）
+	struct FDownloadTask;
 
 	/// 处理 HTTP 请求完成
 	void HandleRequestComplete(TSharedPtr<class IHttpRequest> Request, TSharedPtr<class IHttpResponse> Response, bool bSuccess, TSharedPtr<FDownloadTask> Task);
@@ -123,9 +111,6 @@ protected:
 private:
 	/// 最大并发数
 	int32 MaxConcurrentDownloads;
-
-	/// 分片大小（字节）
-	int64 ChunkSize;
 
 	/// 最大重试次数
 	int32 MaxRetryCount;
@@ -159,12 +144,6 @@ private:
 
 	/// 已完成的任务
 	TArray<TSharedPtr<FDownloadTask>> CompletedTasks;
-
-	/// 活跃 HTTP 请求数
-	int32 ActiveRequestCount;
-
-	/// 开始下载时间
-	double DownloadStartTime;
 
 	/// 上次进度更新时间
 	double LastProgressUpdateTime;

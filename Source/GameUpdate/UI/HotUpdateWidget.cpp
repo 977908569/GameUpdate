@@ -10,39 +10,40 @@
 #include "Core/HotUpdateVersion.h"
 #include "Core/HotUpdateProgress.h"
 #include "Core/HotUpdateVersionInfo.h"
+#include "UObject/UObjectGlobals.h"
 
 UHotUpdateWidget::UHotUpdateWidget(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
-	  , StateSwitcher(nullptr), CheckStatePanel(nullptr), CheckButton(nullptr), CheckButtonText(nullptr),
-	  VersionInfoPanel(nullptr),
-	  CurrentVersionText(nullptr),
-	  LatestVersionText(nullptr),
-	  ReleaseNotesText(nullptr),
-	  UpdateSizeText(nullptr),
-	  DownloadButton(nullptr),
-	  SkipButton(nullptr),
-	  DownloadStatePanel(nullptr),
-	  DownloadProgressBar(nullptr),
-	  ProgressPercentText(nullptr),
-	  DownloadSpeedText(nullptr),
-	  RemainingTimeText(nullptr), CurrentFileText(nullptr),
-	  PauseButton(nullptr),
-	  ResumeButton(nullptr),
-	  CancelButton(nullptr),
-	  InstallingPanel(nullptr),
-	  InstallingText(nullptr),
-	  SuccessPanel(nullptr),
-	  SuccessText(nullptr),
-	  ApplyButton(nullptr),
-	  RestartButton(nullptr), ErrorPanel(nullptr),
-	  ErrorText(nullptr),
-	  RetryButton(nullptr),
-	  CloseErrorButton(nullptr),
-	  NoUpdatePanel(nullptr),
-	  NoUpdateText(nullptr),
-	  CloseNoUpdateButton(nullptr),
-	  CloseButton(nullptr),
-	  bIsPaused(false)
+		  , StateSwitcher(nullptr), CheckStatePanel(nullptr), CheckButton(nullptr), CheckButtonText(nullptr),
+		  VersionInfoPanel(nullptr),
+		  CurrentVersionText(nullptr),
+		  LatestVersionText(nullptr),
+		  ReleaseNotesText(nullptr),
+		  UpdateSizeText(nullptr),
+		  DownloadButton(nullptr),
+		  SkipButton(nullptr),
+		  DownloadStatePanel(nullptr),
+		  DownloadProgressBar(nullptr),
+		  ProgressPercentText(nullptr),
+		  DownloadSpeedText(nullptr),
+		  RemainingTimeText(nullptr), CurrentFileText(nullptr),
+		  PauseButton(nullptr),
+		  ResumeButton(nullptr),
+		  CancelButton(nullptr),
+		  InstallingPanel(nullptr),
+		  InstallingText(nullptr),
+		  SuccessPanel(nullptr),
+		  SuccessText(nullptr),
+		  ApplyButton(nullptr),
+		  RestartButton(nullptr), ErrorPanel(nullptr),
+		  ErrorText(nullptr),
+		  RetryButton(nullptr),
+		  CloseErrorButton(nullptr),
+		  NoUpdatePanel(nullptr),
+		  NoUpdateText(nullptr),
+		  CloseNoUpdateButton(nullptr),
+		  CloseButton(nullptr),
+		  bIsPaused(false)
 {
 }
 
@@ -199,6 +200,9 @@ void UHotUpdateWidget::UpdateUIForState(const EHotUpdateState State) const
 			if (CheckButtonText) CheckButtonText->SetText(FText::FromString(TEXT("检查中...")));
 			if (CheckButton) CheckButton->SetIsEnabled(false);
 			break;
+		case EHotUpdateState::UpdateAvailable:
+			if (VersionInfoPanel) StateSwitcher->SetActiveWidget(VersionInfoPanel);
+			break;
 		case EHotUpdateState::Downloading:
 			if (DownloadStatePanel) StateSwitcher->SetActiveWidget(DownloadStatePanel);
 			break;
@@ -317,22 +321,14 @@ void UHotUpdateWidget::OnVersionCheckComplete(const FHotUpdateVersionCheckResult
 		if (CheckButtonText) CheckButtonText->SetText(FText::FromString(TEXT("检查更新")));
 	}
 
+	// 状态机已驱动 UpdateUIForState 切换到 VersionInfoPanel 或 NoUpdatePanel
+	// 这里只需更新版本信息文本
 	if (Result.bHasUpdate)
 	{
-		// 有更新，显示版本信息面板
-		if (StateSwitcher && VersionInfoPanel)
-		{
-			StateSwitcher->SetActiveWidget(VersionInfoPanel);
-		}
 		UpdateVersionInfo();
 	}
 	else
 	{
-		// 无更新
-		if (StateSwitcher && NoUpdatePanel)
-		{
-			StateSwitcher->SetActiveWidget(NoUpdatePanel);
-		}
 		if (NoUpdateText)
 		{
 			NoUpdateText->SetText(FText::FromString(TEXT("已是最新版本")));
@@ -395,7 +391,7 @@ void UHotUpdateWidget::OnApplyComplete(bool bSuccess, const FString& ErrorMessag
 	}
 }
 
-void UHotUpdateWidget::OnError(const FString& ErrorCode, const FString& ErrorMessage)
+void UHotUpdateWidget::OnError(EHotUpdateError ErrorType, const FString& ErrorMessage)
 {
 	if (StateSwitcher && ErrorPanel)
 	{
@@ -403,7 +399,8 @@ void UHotUpdateWidget::OnError(const FString& ErrorCode, const FString& ErrorMes
 	}
 	if (ErrorText)
 	{
-		FString FullError = FString::Printf(TEXT("错误 [%s]: %s"), *ErrorCode, *ErrorMessage);
+		FString ErrorTypeStr = UEnum::GetDisplayValueAsText(ErrorType).ToString();
+		FString FullError = FString::Printf(TEXT("错误 [%s]: %s"), *ErrorTypeStr, *ErrorMessage);
 		ErrorText->SetText(FText::FromString(FullError));
 	}
 }

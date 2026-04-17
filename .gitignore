@@ -41,3 +41,6 @@ Build/Android_ASTC/
 Build/AutomationScripts/bin/
 Build/AutomationScripts/obj/
 Build/Windows/
+Build/Win64/
+upload_hotpatch.py
+Build/HotUpdateVersions/1.0.0/

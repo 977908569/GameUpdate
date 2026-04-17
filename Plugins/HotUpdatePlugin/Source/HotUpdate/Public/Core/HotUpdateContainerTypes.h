@@ -76,9 +76,15 @@ struct HOTUPDATE_API FHotUpdateContainerInfo
 	{
 	}
 
-	/// 比较运算符（用于 IndexOfByKey）
+	/// 比较运算符（基于 ChunkId，与增量计算器一致）
 	bool operator==(const FHotUpdateContainerInfo& Other) const
 	{
-		return ContainerName == Other.ContainerName;
+		return ChunkId == Other.ChunkId;
+	}
+
+	/// 哈希函数（支持 TSet/TMap）
+	friend uint32 GetTypeHash(const FHotUpdateContainerInfo& Container)
+	{
+		return GetTypeHash(Container.ChunkId);
 	}
 };

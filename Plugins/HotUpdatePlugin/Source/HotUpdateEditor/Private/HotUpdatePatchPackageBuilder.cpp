@@ -310,47 +310,24 @@ FHotUpdatePatchPackageResult UHotUpdatePatchPackageBuilder::BuildPatchPackage(co
 
 	TMap<FString, FString> ChangedAssetDiskPaths;
 
-	// Cooked 平台目录，用于解析运行时需要的 cooked 格式文件路径
-		FString CookedPlatformDir = HotUpdateUtils::GetCookedPlatformDir(CurrentConfig.Platform);
+	// 从已收集的 CurrentAssetDiskPaths 中查找磁盘路径，避免重复解析和 Staged/非Staged 判断不一致
 	// 添加新增资源的磁盘路径
 	for (const FHotUpdateAssetDiff& AddedDiff : DiffReport.AddedAssets)
 	{
-		FString DiskPath;
-		// Staged 文件（Game/ 前缀且非 UE 资源扩展名）映射到 Content 目录源文件
-		if (AddedDiff.AssetPath.StartsWith(TEXT("/Game/")) &&
-			!AddedDiff.AssetPath.EndsWith(TEXT(".uasset")) && !AddedDiff.AssetPath.EndsWith(TEXT(".umap")))
+		const FString* DiskPath = CurrentAssetDiskPaths.Find(AddedDiff.AssetPath);
+		if (DiskPath && FPaths::FileExists(**DiskPath))
 		{
-			FString RelativePath = AddedDiff.AssetPath.RightChop(6); // 去掉 "Game/"
-			DiskPath = FPaths::ProjectContentDir() / RelativePath;
-		}
-		else
-		{
-			DiskPath = GetAssetDiskPath(AddedDiff.AssetPath, CookedPlatformDir);
-		}
-		if (!DiskPath.IsEmpty() && FPaths::FileExists(*DiskPath))
-		{
-			ChangedAssetDiskPaths.Add(AddedDiff.AssetPath, DiskPath);
+			ChangedAssetDiskPaths.Add(AddedDiff.AssetPath, *DiskPath);
 		}
 	}
 
 	// 添加修改资源的磁盘路径
 	for (const FHotUpdateAssetDiff& ModifiedDiff : DiffReport.ModifiedAssets)
 	{
-		FString DiskPath;
-		// Staged 文件（Game/ 前缀且非 UE 资源扩展名）映射到 Content 目录源文件
-		if (ModifiedDiff.AssetPath.StartsWith(TEXT("/Game/")) &&
-			!ModifiedDiff.AssetPath.EndsWith(TEXT(".uasset")) && !ModifiedDiff.AssetPath.EndsWith(TEXT(".umap")))
+		const FString* DiskPath = CurrentAssetDiskPaths.Find(ModifiedDiff.AssetPath);
+		if (DiskPath && FPaths::FileExists(**DiskPath))
 		{
-			FString RelativePath = ModifiedDiff.AssetPath.RightChop(6); // 去掉 "Game/"
-			DiskPath = FPaths::ProjectContentDir() / RelativePath;
-		}
-		else
-		{
-			DiskPath = GetAssetDiskPath(ModifiedDiff.AssetPath, CookedPlatformDir);
-		}
-		if (!DiskPath.IsEmpty() && FPaths::FileExists(*DiskPath))
-		{
-			ChangedAssetDiskPaths.Add(ModifiedDiff.AssetPath, DiskPath);
+			ChangedAssetDiskPaths.Add(ModifiedDiff.AssetPath, *DiskPath);
 		}
 	}
 

@@ -54,7 +54,7 @@ void UHotUpdateManager::Initialize(FSubsystemCollectionBase& Collection)
 	Downloader = NewObject<UHotUpdateHttpDownloader>(this);
 	if (Downloader)
 	{
-		Downloader->Initialize(Settings->MaxConcurrentDownloads, Settings->ChunkSizeMB);
+		Downloader->Initialize(Settings->MaxConcurrentDownloads);
 
 		// 绑定下载进度回调
 		Downloader->OnProgress.AddDynamic(this, &UHotUpdateManager::HandleDownloadProgress);
@@ -130,7 +130,7 @@ void UHotUpdateManager::CheckForUpdate()
 	if (Settings->ManifestUrl.IsEmpty())
 	{
 		UE_LOG(LogHotUpdate, Warning, TEXT("Manifest URL is empty"));
-		OnError.Broadcast(TEXT("EMPTY_URL"), TEXT("Manifest URL is empty"));
+		OnError.Broadcast(EHotUpdateError::EmptyUrl, TEXT("Manifest URL is empty"));
 		return;
 	}
 
@@ -141,8 +141,8 @@ void UHotUpdateManager::CheckForUpdate()
 		UE_LOG(LogHotUpdate, Error, TEXT("URL validation failed: %s"), *UrlErrorMessage);
 		VersionCheckResult.ErrorMessage = UrlErrorMessage;
 		OnVersionCheckComplete.Broadcast(VersionCheckResult);
-	OnError.Broadcast(TEXT("INVALID_URL"), *UrlErrorMessage);
-	return;
+		OnError.Broadcast(EHotUpdateError::InvalidUrl, UrlErrorMessage);
+		return;
 	}
 
 	SetState(EHotUpdateState::CheckingVersion);
@@ -171,7 +171,7 @@ void UHotUpdateManager::HandleLatestVersionResponse(TSharedPtr<IHttpRequest> Req
 		UE_LOG(LogHotUpdate, Error, TEXT("Latest version fetch failed"));
 		SetState(EHotUpdateState::Failed);
 		VersionCheckResult.ErrorMessage = TEXT("Network request failed");
-		OnError.Broadcast(TEXT("NETWORK_ERROR"), TEXT("Network request failed"));
+		OnError.Broadcast(EHotUpdateError::NetworkError, TEXT("Network request failed"));
 		OnVersionCheckComplete.Broadcast(VersionCheckResult);
 		return;
 	}
@@ -186,7 +186,7 @@ void UHotUpdateManager::HandleLatestVersionResponse(TSharedPtr<IHttpRequest> Req
 		UE_LOG(LogHotUpdate, Error, TEXT("Failed to parse latest version response"));
 		SetState(EHotUpdateState::Failed);
 		VersionCheckResult.ErrorMessage = TEXT("Invalid latest version format");
-		OnError.Broadcast(TEXT("PARSE_ERROR"), TEXT("Invalid latest version format"));
+		OnError.Broadcast(EHotUpdateError::ParseError, TEXT("Invalid latest version format"));
 		OnVersionCheckComplete.Broadcast(VersionCheckResult);
 		return;
 	}
@@ -230,7 +230,7 @@ void UHotUpdateManager::HandleVersionCheckResponse(TSharedPtr<IHttpRequest> Requ
 		UE_LOG(LogHotUpdate, Error, TEXT("Manifest fetch failed"));
 		SetState(EHotUpdateState::Failed);
 		VersionCheckResult.ErrorMessage = TEXT("Network request failed");
-		OnError.Broadcast(TEXT("NETWORK_ERROR"), TEXT("Network request failed"));
+		OnError.Broadcast(EHotUpdateError::NetworkError, TEXT("Network request failed"));
 		OnVersionCheckComplete.Broadcast(VersionCheckResult);
 		return;
 	}
@@ -244,7 +244,7 @@ void UHotUpdateManager::HandleVersionCheckResponse(TSharedPtr<IHttpRequest> Requ
 		UE_LOG(LogHotUpdate, Error, TEXT("Failed to parse manifest response"));
 		SetState(EHotUpdateState::Failed);
 		VersionCheckResult.ErrorMessage = TEXT("Invalid manifest format");
-		OnError.Broadcast(TEXT("PARSE_ERROR"), TEXT("Invalid manifest format"));
+		OnError.Broadcast(EHotUpdateError::ParseError, TEXT("Invalid manifest format"));
 		OnVersionCheckComplete.Broadcast(VersionCheckResult);
 		return;
 	}
@@ -259,7 +259,7 @@ void UHotUpdateManager::HandleVersionCheckResponse(TSharedPtr<IHttpRequest> Requ
 		UE_LOG(LogHotUpdate, Error, TEXT("Invalid version info in manifest"));
 		SetState(EHotUpdateState::Failed);
 		VersionCheckResult.ErrorMessage = TEXT("Invalid version info in manifest");
-		OnError.Broadcast(TEXT("INVALID_VERSION"), TEXT("Invalid version info in manifest"));
+		OnError.Broadcast(EHotUpdateError::InvalidVersion, TEXT("Invalid version info in manifest"));
 		OnVersionCheckComplete.Broadcast(VersionCheckResult);
 		return;
 	}
@@ -321,7 +321,8 @@ void UHotUpdateManager::HandleVersionCheckResponse(TSharedPtr<IHttpRequest> Requ
 		VersionCheckResult.SkippedFileCount,
 		VersionCheckResult.SkippedTotalSize / (1024.0 * 1024.0));
 
-	SetState(EHotUpdateState::Idle);
+	// 根据是否有更新设置对应状态
+	SetState(bHasUpdateAvailable ? EHotUpdateState::UpdateAvailable : EHotUpdateState::Idle);
 	OnVersionCheckComplete.Broadcast(VersionCheckResult);
 
 	// 自动下载：检测到更新且开启自动下载时，自动开始下载
@@ -334,7 +335,7 @@ void UHotUpdateManager::HandleVersionCheckResponse(TSharedPtr<IHttpRequest> Requ
 
 bool UHotUpdateManager::StartDownload()
 {
-	if (CurrentState != EHotUpdateState::Idle)
+	if (CurrentState != EHotUpdateState::Idle && CurrentState != EHotUpdateState::UpdateAvailable)
 	{
 		UE_LOG(LogHotUpdate, Warning, TEXT("Cannot start download in current state: %d"), (int32)CurrentState);
 		return false;
@@ -351,14 +352,9 @@ bool UHotUpdateManager::StartDownload()
 
 		SetState(EHotUpdateState::Downloading);
 
-		// 准备下载任务 - 使用容器文件
 		UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
 		FString SaveDir = Settings->GetLocalPakFullPath() / LatestVersion.ToString();
-
-		// 拼接完整资源下载基础 URL: ResourceBaseUrl/{version}/{platform}/
-		FString DownloadBaseUrl = Settings->ResourceBaseUrl;
-		if (!DownloadBaseUrl.EndsWith(TEXT("/"))) DownloadBaseUrl += TEXT("/");
-		DownloadBaseUrl += LatestVersion.VersionString + TEXT("/") + CachedServerManifest.VersionInfo.Platform + TEXT("/");
+		FString DownloadBaseUrl = BuildDownloadBaseUrl();
 
 		Downloader->AddContainerDownloadTasks(VersionCheckResult.UpdateContainers, DownloadBaseUrl, SaveDir);
 		Downloader->StartDownload();
@@ -383,14 +379,9 @@ bool UHotUpdateManager::StartDownload()
 
 	SetState(EHotUpdateState::Downloading);
 
-	// 准备下载任务 - 使用单个文件（兼容模式）
 	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
 	FString SaveDir = Settings->GetLocalPakFullPath() / LatestVersion.ToString();
-
-	// 拼接完整资源下载基础 URL: ResourceBaseUrl/{version}/{platform}/
-	FString DownloadBaseUrl = Settings->ResourceBaseUrl;
-	if (!DownloadBaseUrl.EndsWith(TEXT("/"))) DownloadBaseUrl += TEXT("/");
-	DownloadBaseUrl += LatestVersion.VersionString + TEXT("/") + CachedServerManifest.VersionInfo.Platform + TEXT("/");
+	FString DownloadBaseUrl = BuildDownloadBaseUrl();
 
 	Downloader->AddDownloadTasks(VersionCheckResult.UpdateFiles, DownloadBaseUrl, SaveDir);
 	Downloader->StartDownload();
@@ -431,7 +422,7 @@ void UHotUpdateManager::CancelDownload()
 
 bool UHotUpdateManager::ApplyUpdate()
 {
-	if (CurrentState != EHotUpdateState::Idle)
+	if (CurrentState != EHotUpdateState::Idle && CurrentState != EHotUpdateState::UpdateAvailable)
 	{
 		return false;
 	}
@@ -843,6 +834,18 @@ bool UHotUpdateManager::VerifyDownloadedFiles()
 	return FailedCount == 0;
 }
 
+FString UHotUpdateManager::BuildDownloadBaseUrl() const
+{
+	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
+	FString Url = Settings->ResourceBaseUrl;
+	if (!Url.EndsWith(TEXT("/")))
+	{
+		Url += TEXT("/");
+	}
+	Url += LatestVersion.VersionString + TEXT("/") + CachedServerManifest.VersionInfo.Platform + TEXT("/");
+	return Url;
+}
+
 TArray<FHotUpdateVersionInfo> UHotUpdateManager::GetLocalVersionHistory() const
 {
 	if (VersionStorage)
@@ -868,7 +871,7 @@ void UHotUpdateManager::HandleDownloadComplete(bool bSuccess, const FString& Err
 	else
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("Download failed: %s"), *ErrorMessage);
-		OnError.Broadcast(TEXT("DOWNLOAD_FAILED"), ErrorMessage);
+		OnError.Broadcast(EHotUpdateError::DownloadFailed, ErrorMessage);
 		SetState(EHotUpdateState::Failed);
 	}
 

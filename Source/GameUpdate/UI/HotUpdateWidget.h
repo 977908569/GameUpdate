@@ -19,7 +19,7 @@ class UHotUpdateManager;
  * 状态流程：
  * 1. Idle -> 显示检查按钮
  * 2. CheckingVersion -> 显示检查中状态
- * 3. 有更新 -> 显示版本信息和下载按钮
+ * 3. UpdateAvailable -> 显示版本信息和下载按钮
  * 4. Downloading -> 显示下载进度
  * 5. Success/Failed -> 显示结果
  */
@@ -81,7 +81,7 @@ protected:
 	void OnApplyComplete(bool bSuccess, const FString& ErrorMessage);
 
 	UFUNCTION()
-	void OnError(const FString& ErrorCode, const FString& ErrorMessage);
+	void OnError(EHotUpdateError ErrorType, const FString& ErrorMessage);
 
 	// == 按钮点击事件 ==
 	UFUNCTION()
