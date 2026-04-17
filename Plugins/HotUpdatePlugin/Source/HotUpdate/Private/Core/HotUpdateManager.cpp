@@ -7,7 +7,7 @@
 #include "Core/HotUpdateFileUtils.h"
 #include "Core/HotUpdateVersionStorage.h"
 #include "Core/HotUpdateIncrementalCalculator.h"
-#include "Download/HotUpdateHttpDownloader.h"
+#include "Download/HotUpdateDownloaderBase.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -50,8 +50,8 @@ void UHotUpdateManager::Initialize(FSubsystemCollectionBase& Collection)
 	// 创建增量下载计算器
 	IncrementalCalculator = NewObject<UHotUpdateIncrementalCalculator>(this);
 
-	// 创建下载器
-	Downloader = NewObject<UHotUpdateHttpDownloader>(this);
+	// 创建下载器（通过工厂选择平台合适的实现）
+	Downloader = UHotUpdateDownloaderBase::CreateDownloader(this);
 	if (Downloader)
 	{
 		Downloader->Initialize(Settings->MaxConcurrentDownloads);

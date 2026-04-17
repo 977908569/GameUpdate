@@ -3,19 +3,17 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Core/HotUpdateTypes.h"
-#include "Core/HotUpdateProgress.h"
-#include "Core/HotUpdateFileInfo.h"
-#include "Core/HotUpdateContainerTypes.h"
+#include "Download/HotUpdateDownloaderBase.h"
 #include "HotUpdateHttpDownloader.generated.h"
 
 /**
  * HTTP 下载器
  *
- * 支持多线程并发下载、断点续传、进度回调
+ * 基于 UE HTTP 模块的下载实现，支持多线程并发下载、断点续传、进度回调
+ * 适用于 Windows / Mac / Linux 等桌面平台
  */
 UCLASS(BlueprintType)
-class HOTUPDATE_API UHotUpdateHttpDownloader : public UObject
+class HOTUPDATE_API UHotUpdateHttpDownloader : public UHotUpdateDownloaderBase
 {
 	GENERATED_BODY()
 
@@ -23,67 +21,39 @@ public:
 	UHotUpdateHttpDownloader();
 
 	/// 初始化下载器
-	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Download")
-	void Initialize(int32 InMaxConcurrentDownloads = 3);
+	virtual void Initialize(int32 InMaxConcurrentDownloads = 3) override;
 
 	/// 添加下载任务
-	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Download")
-	void AddDownloadTask(const FString& Url, const FString& SavePath, int64 ExpectedSize = 0, const FString& InExpectedHash = TEXT(""));
+	virtual void AddDownloadTask(const FString& Url, const FString& SavePath, int64 ExpectedSize = 0, const FString& InExpectedHash = TEXT("")) override;
 
 	/// 批量添加下载任务
-	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Download")
-	void AddDownloadTasks(const TArray<FHotUpdateFileInfo>& Files, const FString& BaseUrl, const FString& SaveDir);
+	virtual void AddDownloadTasks(const TArray<FHotUpdateFileInfo>& Files, const FString& BaseUrl, const FString& SaveDir) override;
 
 	/// 批量添加容器下载任务（IoStore 容器）
-	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Download")
-	void AddContainerDownloadTasks(const TArray<FHotUpdateContainerInfo>& Containers, const FString& BaseUrl, const FString& SaveDir);
+	virtual void AddContainerDownloadTasks(const TArray<FHotUpdateContainerInfo>& Containers, const FString& BaseUrl, const FString& SaveDir) override;
 
 	/// 开始下载
-	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Download")
-	void StartDownload();
+	virtual void StartDownload() override;
 
 	/// 暂停下载（取消进行中的请求，临时文件保留供续传）
-	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Download")
-	void PauseDownload();
+	virtual void PauseDownload() override;
 
 	/// 恢复下载
-	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Download")
-	void ResumeDownload();
+	virtual void ResumeDownload() override;
 
 	/// 取消下载
-	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Download")
-	void CancelDownload();
+	virtual void CancelDownload() override;
 
 	/// 获取当前进度
-	UFUNCTION(BlueprintPure, Category = "HotUpdate|Download")
-	FHotUpdateProgress GetProgress() const { return CurrentProgress; }
+	virtual FHotUpdateProgress GetProgress() const override { return CurrentProgress; }
 
 	/// 是否正在下载
-	UFUNCTION(BlueprintPure, Category = "HotUpdate|Download")
-	bool IsDownloading() const { return bIsDownloading; }
+	virtual bool IsDownloading() const override { return bIsDownloading; }
 
 	/// 是否暂停中
-	UFUNCTION(BlueprintPure, Category = "HotUpdate|Download")
-	bool IsPaused() const { return bIsPaused; }
+	virtual bool IsPaused() const override { return bIsPaused; }
 
-	// == 事件委托 ==
-
-	/// 进度更新事件
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnProgress, const FHotUpdateProgress&, Progress);
-	UPROPERTY(BlueprintAssignable, Category = "HotUpdate|Events")
-	FOnProgress OnProgress;
-
-	/// 下载完成事件
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnComplete, bool, bSuccess, const FString&, ErrorMessage);
-	UPROPERTY(BlueprintAssignable, Category = "HotUpdate|Events")
-	FOnComplete OnComplete;
-
-	/// 单个文件完成事件
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnFileComplete, const FString&, FilePath, bool, bSuccess);
-	UPROPERTY(BlueprintAssignable, Category = "HotUpdate|Events")
-	FOnFileComplete OnFileComplete;
-
-protected:
+	protected:
 	/// 内部任务结构（前向声明，实现在 cpp 中）
 	struct FDownloadTask;
 

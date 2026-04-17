@@ -44,3 +44,5 @@ Build/Windows/
 Build/Win64/
 upload_hotpatch.py
 Build/HotUpdateVersions/1.0.0/
+Build/AutomationScripts/StripExtraPakChunks.Automation.csproj.props
+Build/Android_ETC2/

@@ -15,7 +15,6 @@ public class HotUpdate : ModuleRules
 			"CoreUObject",
 			"Engine",
 			"InputCore",
-			"HTTP",
 			"PakFile",
 			"Json",
 			"JsonUtilities",
@@ -26,7 +25,14 @@ public class HotUpdate : ModuleRules
 		PrivateDependencyModuleNames.AddRange(new string[]
 		{
 			"Projects",
-			"ApplicationCore"
+			"ApplicationCore",
+			"HTTP"
 		});
+
+		// Android 平台依赖
+		if (Target.Platform == UnrealTargetPlatform.Android)
+		{
+			PrivateDependencyModuleNames.Add("AndroidRuntimeSettings");
+		}
 	}
 }

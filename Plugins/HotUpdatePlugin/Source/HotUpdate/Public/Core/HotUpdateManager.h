@@ -10,7 +10,7 @@
 #include "Manifest/HotUpdateManifest.h"
 #include "HotUpdateManager.generated.h"
 
-class UHotUpdateHttpDownloader;
+class UHotUpdateDownloaderBase;
 class UHotUpdatePakManager;
 class UHotUpdateVersionStorage;
 class UHotUpdateIncrementalCalculator;
@@ -184,7 +184,7 @@ private:
 
 	/// 下载器实例
 	UPROPERTY(Transient)
-	TObjectPtr<UHotUpdateHttpDownloader> Downloader;
+	TObjectPtr<UHotUpdateDownloaderBase> Downloader;
 
 	/// Pak 管理器
 	UPROPERTY(Transient)
