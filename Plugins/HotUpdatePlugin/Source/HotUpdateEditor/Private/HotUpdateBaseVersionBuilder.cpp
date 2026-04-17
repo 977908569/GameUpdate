@@ -837,7 +837,7 @@ bool UHotUpdateBaseVersionBuilder::BuildManifestJson(
 	// 版本信息
 	OutVersionObject = MakeShareable(new FJsonObject);
 	OutVersionObject->SetStringField(TEXT("version"), CurrentConfig.VersionString);
-	OutVersionObject->SetStringField(TEXT("platform"), HotUpdateUtils::GetPlatformDirectoryName(CurrentConfig.Platform));
+	OutVersionObject->SetStringField(TEXT("platform"), HotUpdateUtils::GetPlatformString(CurrentConfig.Platform));
 	OutVersionObject->SetNumberField(TEXT("timestamp"), FDateTime::Now().ToUnixTimestamp());
 
 	RootObject->SetObjectField(TEXT("version"), OutVersionObject);
