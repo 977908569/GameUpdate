@@ -18,6 +18,18 @@ bool UHotUpdateManifestParser::ParseFromJson(const FString& JsonString, FHotUpda
 		return false;
 	}
 
+	// 解析 manifestVersion
+	JsonObject->TryGetNumberField(TEXT("manifestVersion"), OutManifest.ManifestVersion);
+
+	// 解析 packageKind（整数→枚举：0=Base, 1=Patch）
+	double PackageKindValue = 0;
+	if (JsonObject->TryGetNumberField(TEXT("packageKind"), PackageKindValue))
+	{
+		OutManifest.PackageKind = static_cast<int32>(PackageKindValue) == 1
+			? EHotUpdatePackageKind::Patch
+			: EHotUpdatePackageKind::Base;
+	}
+
 	// 解析版本信息
 	const TSharedPtr<FJsonObject>* VersionObject;
 	if (JsonObject->TryGetObjectField(TEXT("version"), VersionObject))
@@ -25,19 +37,16 @@ bool UHotUpdateManifestParser::ParseFromJson(const FString& JsonString, FHotUpda
 		(*VersionObject)->TryGetStringField(TEXT("version"), OutManifest.VersionInfo.VersionString);
 		(*VersionObject)->TryGetStringField(TEXT("platform"), OutManifest.VersionInfo.Platform);
 		(*VersionObject)->TryGetNumberField(TEXT("timestamp"), OutManifest.VersionInfo.Timestamp);
-	}
 
-	// 解析版本信息（新格式 - versionInfo）
-	const TSharedPtr<FJsonObject>* VersionInfoObject;
-	if (JsonObject->TryGetObjectField(TEXT("versionInfo"), VersionInfoObject))
-	{
-		(*VersionInfoObject)->TryGetNumberField(TEXT("majorVersion"), OutManifest.VersionInfo.MajorVersion);
-		(*VersionInfoObject)->TryGetNumberField(TEXT("minorVersion"), OutManifest.VersionInfo.MinorVersion);
-		(*VersionInfoObject)->TryGetNumberField(TEXT("patchVersion"), OutManifest.VersionInfo.PatchVersion);
-		(*VersionInfoObject)->TryGetNumberField(TEXT("buildNumber"), OutManifest.VersionInfo.BuildNumber);
-		(*VersionInfoObject)->TryGetStringField(TEXT("versionString"), OutManifest.VersionInfo.VersionString);
-		(*VersionInfoObject)->TryGetStringField(TEXT("platform"), OutManifest.VersionInfo.Platform);
-		(*VersionInfoObject)->TryGetNumberField(TEXT("timestamp"), OutManifest.VersionInfo.Timestamp);
+		// 从版本字符串解析整数版本号
+		if (!OutManifest.VersionInfo.VersionString.IsEmpty())
+		{
+			FHotUpdateVersionInfo Parsed = FHotUpdateVersionInfo::FromString(OutManifest.VersionInfo.VersionString);
+			OutManifest.VersionInfo.MajorVersion = Parsed.MajorVersion;
+			OutManifest.VersionInfo.MinorVersion = Parsed.MinorVersion;
+			OutManifest.VersionInfo.PatchVersion = Parsed.PatchVersion;
+			OutManifest.VersionInfo.BuildNumber = Parsed.BuildNumber;
+		}
 	}
 
 	// 解析全量热更新标志
@@ -48,47 +57,7 @@ bool UHotUpdateManifestParser::ParseFromJson(const FString& JsonString, FHotUpda
 	// 解析基础版本号
 	JsonObject->TryGetStringField(TEXT("baseVersion"), OutManifest.BaseVersion);
 
-	// 解析 chunks 数组（旧格式）
-	const TArray<TSharedPtr<FJsonValue>>* ChunksArray;
-	if (JsonObject->TryGetArrayField(TEXT("chunks"), ChunksArray))
-	{
-		OutManifest.Containers.Empty();
-		for (const TSharedPtr<FJsonValue>& ChunkValue : *ChunksArray)
-		{
-			TSharedPtr<FJsonObject> ChunkObject = ChunkValue->AsObject();
-			if (!ChunkObject.IsValid()) continue;
-
-			FHotUpdateContainerInfo Container;
-			ChunkObject->TryGetStringField(TEXT("ChunkName"), Container.ContainerName);
-			ChunkObject->TryGetStringField(TEXT("utocPath"), Container.UtocPath);
-			ChunkObject->TryGetNumberField(TEXT("utocSize"), Container.UtocSize);
-			ChunkObject->TryGetStringField(TEXT("utocHash"), Container.UtocHash);
-			ChunkObject->TryGetStringField(TEXT("ucasPath"), Container.UcasPath);
-			ChunkObject->TryGetNumberField(TEXT("ucasSize"), Container.UcasSize);
-			ChunkObject->TryGetStringField(TEXT("ucasHash"), Container.UcasHash);
-
-			// 解析容器类型
-			FString ContainerTypeStr;
-			if (ChunkObject->TryGetStringField(TEXT("containerType"), ContainerTypeStr))
-			{
-				Container.ContainerType = ContainerTypeStr.StartsWith(TEXT("base"))
-					? EHotUpdateContainerType::Base
-					: EHotUpdateContainerType::Patch;
-			}
-
-			// 解析 ChunkId
-			double ChunkIdValue;
-			if (ChunkObject->TryGetNumberField(TEXT("chunkId"), ChunkIdValue))
-			{
-				Container.ChunkId = static_cast<int32>(ChunkIdValue);
-			}
-			ChunkObject->TryGetStringField(TEXT("version"), Container.Version);
-
-			OutManifest.Containers.Add(Container);
-		}
-	}
-
-	// 解析 containers 数组（新格式）
+	// 解析 containers 数组
 	const TArray<TSharedPtr<FJsonValue>>* ContainersArray;
 	if (JsonObject->TryGetArrayField(TEXT("containers"), ContainersArray))
 	{
@@ -107,7 +76,7 @@ bool UHotUpdateManifestParser::ParseFromJson(const FString& JsonString, FHotUpda
 			ContainerObject->TryGetNumberField(TEXT("ucasSize"), Container.UcasSize);
 			ContainerObject->TryGetStringField(TEXT("ucasHash"), Container.UcasHash);
 
-			// 解析容器类型
+			// 解析容器类型（字符串格式：base_xxx / patch_xxx）
 			FString ContainerTypeStr;
 			if (ContainerObject->TryGetStringField(TEXT("containerType"), ContainerTypeStr))
 			{
@@ -131,7 +100,7 @@ bool UHotUpdateManifestParser::ParseFromJson(const FString& JsonString, FHotUpda
 
 	OutManifest.BuildPathIndex();
 
-	UE_LOG(LogHotUpdate, Log, TEXT("Parsed manifest: version %s, %d chunks"),
+	UE_LOG(LogHotUpdate, Log, TEXT("Parsed manifest: version %s, %d containers"),
 		*OutManifest.VersionInfo.VersionString,
 		OutManifest.Containers.Num());
 
@@ -157,19 +126,19 @@ FString UHotUpdateManifestParser::ToJsonString(const FHotUpdateManifest& Manifes
 {
 	TSharedPtr<FJsonObject> JsonObject = MakeShareable(new FJsonObject());
 
-	// 版本信息（新格式 versionInfo）
+	// manifestVersion
+	JsonObject->SetNumberField(TEXT("manifestVersion"), Manifest.ManifestVersion);
+
+	// packageKind（枚举→整数：Base=0, Patch=1）
+	JsonObject->SetNumberField(TEXT("packageKind"),
+		Manifest.PackageKind == EHotUpdatePackageKind::Patch ? 1 : 0);
+
+	// 版本信息
 	TSharedPtr<FJsonObject> VersionObject = MakeShareable(new FJsonObject());
 	VersionObject->SetStringField(TEXT("version"), Manifest.VersionInfo.VersionString);
 	VersionObject->SetStringField(TEXT("platform"), Manifest.VersionInfo.Platform);
 	VersionObject->SetNumberField(TEXT("timestamp"), Manifest.VersionInfo.Timestamp);
-	JsonObject->SetObjectField(TEXT("versionInfo"), VersionObject);
-
-	// 兼容旧格式
-	TSharedPtr<FJsonObject> LegacyVersionObject = MakeShareable(new FJsonObject());
-	LegacyVersionObject->SetStringField(TEXT("version"), Manifest.VersionInfo.VersionString);
-	LegacyVersionObject->SetStringField(TEXT("platform"), Manifest.VersionInfo.Platform);
-	LegacyVersionObject->SetNumberField(TEXT("timestamp"), Manifest.VersionInfo.Timestamp);
-	JsonObject->SetObjectField(TEXT("version"), LegacyVersionObject);
+	JsonObject->SetObjectField(TEXT("version"), VersionObject);
 
 	// 全量热更新标志
 	JsonObject->SetBoolField(TEXT("bIncludesBaseContainers"), Manifest.bIncludesBaseContainers);
@@ -182,7 +151,7 @@ FString UHotUpdateManifestParser::ToJsonString(const FHotUpdateManifest& Manifes
 		JsonObject->SetStringField(TEXT("baseVersion"), Manifest.BaseVersion);
 	}
 
-	// containers 数组（新格式，包含 containerType 和 chunkId）
+	// containers 数组
 	TArray<TSharedPtr<FJsonValue>> ContainersArray;
 	for (const FHotUpdateContainerInfo& Container : Manifest.Containers)
 	{
@@ -197,35 +166,15 @@ FString UHotUpdateManifestParser::ToJsonString(const FHotUpdateManifest& Manifes
 
 		// 容器类型
 		ContainerObject->SetStringField(TEXT("containerType"),
-			Container.ContainerType == EHotUpdateContainerType::Base ? TEXT("base") : TEXT("patch"));
+			Container.ContainerType == EHotUpdateContainerType::Base ? TEXT("base") : TEXT("patch_pak"));
 
 		// Chunk ID
 		ContainerObject->SetNumberField(TEXT("chunkId"), Container.ChunkId);
-			ContainerObject->SetStringField(TEXT("version"), Container.Version);
+		ContainerObject->SetStringField(TEXT("version"), Container.Version);
 
 		ContainersArray.Add(MakeShareable(new FJsonValueObject(ContainerObject)));
 	}
 	JsonObject->SetArrayField(TEXT("containers"), ContainersArray);
-
-	// 兼容旧格式 chunks 数组
-	TArray<TSharedPtr<FJsonValue>> ChunksArray;
-	for (const FHotUpdateContainerInfo& Container : Manifest.Containers)
-	{
-		TSharedPtr<FJsonObject> ChunkObject = MakeShareable(new FJsonObject());
-		ChunkObject->SetStringField(TEXT("containerType"),
-			Container.ContainerType == EHotUpdateContainerType::Base ? TEXT("base") : TEXT("patch"));
-		ChunkObject->SetNumberField(TEXT("chunkId"), Container.ChunkId);
-		ChunkObject->SetStringField(TEXT("ChunkName"), Container.ContainerName);
-		ChunkObject->SetStringField(TEXT("utocPath"), Container.UtocPath);
-		ChunkObject->SetNumberField(TEXT("utocSize"), Container.UtocSize);
-		ChunkObject->SetStringField(TEXT("utocHash"), Container.UtocHash);
-		ChunkObject->SetStringField(TEXT("ucasPath"), Container.UcasPath);
-		ChunkObject->SetNumberField(TEXT("ucasSize"), Container.UcasSize);
-		ChunkObject->SetStringField(TEXT("ucasHash"), Container.UcasHash);
-			ChunkObject->SetStringField(TEXT("version"), Container.Version);
-		ChunksArray.Add(MakeShareable(new FJsonValueObject(ChunkObject)));
-	}
-	JsonObject->SetArrayField(TEXT("chunks"), ChunksArray);
 
 	FString OutputString;
 	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);

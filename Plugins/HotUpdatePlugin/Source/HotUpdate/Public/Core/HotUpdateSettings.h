@@ -19,11 +19,11 @@ public:
 
 	// == 服务器配置 ==
 
-	/// Manifest 文件 URL（包含版本信息和文件列表）
-	UPROPERTY(Config, EditAnywhere, Category = "Server", meta = (DisplayName = "Manifest URL"))
+	/// 版本检查 URL（latest.json，返回最新版本号和 manifest 地址）
+	UPROPERTY(Config, EditAnywhere, Category = "Server", meta = (DisplayName = "Version Check URL"))
 	FString ManifestUrl;
 
-	/// 资源下载基础 URL
+	/// 资源下载基础 URL（可包含 {version} 占位符，如 http://8.147.65.56/hotpatch/{version}/Windows/）
 	UPROPERTY(Config, EditAnywhere, Category = "Server", meta = (DisplayName = "Resource Base URL"))
 	FString ResourceBaseUrl;
 
@@ -76,6 +76,10 @@ public:
 	/// 启动时自动检查更新
 	UPROPERTY(Config, EditAnywhere, Category = "Behavior")
 	bool bAutoCheckOnStartup;
+
+	/// 检测到更新后自动开始下载
+	UPROPERTY(Config, EditAnywhere, Category = "Behavior")
+	bool bAutoDownload;
 
 	/// 获取本地 Pak 存储完整路径
 	FString GetLocalPakFullPath() const;

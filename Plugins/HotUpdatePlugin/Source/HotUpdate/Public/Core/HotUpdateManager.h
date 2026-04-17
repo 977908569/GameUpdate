@@ -141,6 +141,8 @@ protected:
 	/// 处理版本检查响应
 	void HandleVersionCheckResponse(TSharedPtr<class IHttpRequest> Request, TSharedPtr<class IHttpResponse> Response, bool bSuccess);
 
+	void HandleLatestVersionResponse(TSharedPtr<class IHttpRequest> Request, TSharedPtr<class IHttpResponse> Response, bool bSuccess);
+
 	/// 验证下载文件
 	bool VerifyDownloadedFiles();
 

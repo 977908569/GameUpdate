@@ -19,6 +19,7 @@ UHotUpdateSettings::UHotUpdateSettings()
 	, MaxLocalVersionCount(3)
 	, bAutoCleanupOldVersions(true)
 	, bAutoCheckOnStartup(true)
+	, bAutoDownload(true)
 	, bEnableMinimalPackage(false)
 	, bAllowHttpConnection(false)
 {

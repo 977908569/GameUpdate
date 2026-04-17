@@ -8,6 +8,9 @@
 #include "Core/HotUpdateVersionStorage.h"
 #include "Core/HotUpdateIncrementalCalculator.h"
 #include "Download/HotUpdateHttpDownloader.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "Pak/HotUpdatePakManager.h"
 #include "Manifest/HotUpdateManifestParser.h"
 #include "Manifest/HotUpdateManifest.h"
@@ -122,6 +125,8 @@ void UHotUpdateManager::Deinitialize()
 void UHotUpdateManager::CheckForUpdate()
 {
 	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
+	UE_LOG(LogHotUpdate, Log, TEXT("ManifestUrl = [%s], ResourceBaseUrl = [%s]"),
+		*Settings->ManifestUrl, *Settings->ResourceBaseUrl);
 	if (Settings->ManifestUrl.IsEmpty())
 	{
 		UE_LOG(LogHotUpdate, Warning, TEXT("Manifest URL is empty"));
@@ -142,23 +147,78 @@ void UHotUpdateManager::CheckForUpdate()
 
 	SetState(EHotUpdateState::CheckingVersion);
 
-	// 创建 HTTP 请求下载 Manifest
+	// 先请求 latest.json 获取最新版本信息
 	TSharedRef<IHttpRequest> Request = FHttpModule::Get().CreateRequest();
 	Request->SetURL(Settings->ManifestUrl);
 	Request->SetVerb(TEXT("GET"));
 	Request->SetTimeout(Settings->RequestTimeout);
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 
-	// 添加当前版本信息
-	Request->AppendToHeader(TEXT("X-Current-Version"), *CurrentVersion.ToString());
-	Request->AppendToHeader(TEXT("X-Platform"), FString(FPlatformProperties::PlatformName()));
-
-	Request->OnProcessRequestComplete().BindUObject(this, &UHotUpdateManager::HandleVersionCheckResponse);
+	Request->OnProcessRequestComplete().BindUObject(this, &UHotUpdateManager::HandleLatestVersionResponse);
 
 	VersionCheckRequest = Request;
 	Request->ProcessRequest();
 
-	UE_LOG(LogHotUpdate, Log, TEXT("Fetching manifest from %s"), *Settings->ManifestUrl);
+	UE_LOG(LogHotUpdate, Log, TEXT("Fetching latest version from %s"), *Settings->ManifestUrl);
+}
+
+void UHotUpdateManager::HandleLatestVersionResponse(TSharedPtr<IHttpRequest> Request, TSharedPtr<IHttpResponse> Response, bool bSuccess)
+{
+	VersionCheckRequest.Reset();
+
+	if (!bSuccess || !Response.IsValid())
+	{
+		UE_LOG(LogHotUpdate, Error, TEXT("Latest version fetch failed"));
+		SetState(EHotUpdateState::Failed);
+		VersionCheckResult.ErrorMessage = TEXT("Network request failed");
+		OnError.Broadcast(TEXT("NETWORK_ERROR"), TEXT("Network request failed"));
+		OnVersionCheckComplete.Broadcast(VersionCheckResult);
+		return;
+	}
+
+	FString ResponseContent = Response->GetContentAsString();
+
+	// 解析 latest.json
+	TSharedPtr<FJsonObject> JsonObject;
+	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ResponseContent);
+	if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
+	{
+		UE_LOG(LogHotUpdate, Error, TEXT("Failed to parse latest version response"));
+		SetState(EHotUpdateState::Failed);
+		VersionCheckResult.ErrorMessage = TEXT("Invalid latest version format");
+		OnError.Broadcast(TEXT("PARSE_ERROR"), TEXT("Invalid latest version format"));
+		OnVersionCheckComplete.Broadcast(VersionCheckResult);
+		return;
+	}
+
+	// 从 latest.json 获取 manifest URL
+	FString ManifestUrl;
+	if (JsonObject->TryGetStringField(TEXT("manifestUrl"), ManifestUrl) && !ManifestUrl.IsEmpty())
+	{
+		// 使用 latest.json 提供的 manifest URL
+		UE_LOG(LogHotUpdate, Log, TEXT("Latest manifest URL: %s"), *ManifestUrl);
+	}
+	else
+	{
+		// latest.json 没有提供 manifestUrl，直接将当前响应当作 manifest 解析
+		UE_LOG(LogHotUpdate, Log, TEXT("No manifestUrl in latest.json, treating response as manifest"));
+		HandleVersionCheckResponse(Request, Response, bSuccess);
+		return;
+	}
+
+	// 用获取到的 manifest URL 下载 manifest
+	TSharedRef<IHttpRequest> ManifestRequest = FHttpModule::Get().CreateRequest();
+	ManifestRequest->SetURL(ManifestUrl);
+	ManifestRequest->SetVerb(TEXT("GET"));
+	ManifestRequest->SetTimeout(UHotUpdateSettings::Get()->RequestTimeout);
+	ManifestRequest->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+
+	ManifestRequest->OnProcessRequestComplete().BindUObject(this, &UHotUpdateManager::HandleVersionCheckResponse);
+
+	VersionCheckRequest = ManifestRequest;
+	ManifestRequest->ProcessRequest();
+
+	UE_LOG(LogHotUpdate, Log, TEXT("Fetching manifest from %s"), *ManifestUrl);
 }
 
 void UHotUpdateManager::HandleVersionCheckResponse(TSharedPtr<IHttpRequest> Request, TSharedPtr<IHttpResponse> Response, bool bSuccess)
@@ -263,6 +323,13 @@ void UHotUpdateManager::HandleVersionCheckResponse(TSharedPtr<IHttpRequest> Requ
 
 	SetState(EHotUpdateState::Idle);
 	OnVersionCheckComplete.Broadcast(VersionCheckResult);
+
+	// 自动下载：检测到更新且开启自动下载时，自动开始下载
+	if (bHasUpdateAvailable && UHotUpdateSettings::Get()->bAutoDownload)
+	{
+		UE_LOG(LogHotUpdate, Log, TEXT("Auto-download enabled, starting download automatically"));
+		StartDownload();
+	}
 }
 
 bool UHotUpdateManager::StartDownload()
@@ -288,7 +355,12 @@ bool UHotUpdateManager::StartDownload()
 		UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
 		FString SaveDir = Settings->GetLocalPakFullPath() / LatestVersion.ToString();
 
-		Downloader->AddContainerDownloadTasks(VersionCheckResult.UpdateContainers, Settings->ResourceBaseUrl, SaveDir);
+		// 拼接完整资源下载基础 URL: ResourceBaseUrl/{version}/{platform}/
+		FString DownloadBaseUrl = Settings->ResourceBaseUrl;
+		if (!DownloadBaseUrl.EndsWith(TEXT("/"))) DownloadBaseUrl += TEXT("/");
+		DownloadBaseUrl += LatestVersion.VersionString + TEXT("/") + CachedServerManifest.VersionInfo.Platform + TEXT("/");
+
+		Downloader->AddContainerDownloadTasks(VersionCheckResult.UpdateContainers, DownloadBaseUrl, SaveDir);
 		Downloader->StartDownload();
 
 		UE_LOG(LogHotUpdate, Log, TEXT("Starting container download for version %s, %d containers"),
@@ -315,7 +387,12 @@ bool UHotUpdateManager::StartDownload()
 	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
 	FString SaveDir = Settings->GetLocalPakFullPath() / LatestVersion.ToString();
 
-	Downloader->AddDownloadTasks(VersionCheckResult.UpdateFiles, Settings->ResourceBaseUrl, SaveDir);
+	// 拼接完整资源下载基础 URL: ResourceBaseUrl/{version}/{platform}/
+	FString DownloadBaseUrl = Settings->ResourceBaseUrl;
+	if (!DownloadBaseUrl.EndsWith(TEXT("/"))) DownloadBaseUrl += TEXT("/");
+	DownloadBaseUrl += LatestVersion.VersionString + TEXT("/") + CachedServerManifest.VersionInfo.Platform + TEXT("/");
+
+	Downloader->AddDownloadTasks(VersionCheckResult.UpdateFiles, DownloadBaseUrl, SaveDir);
 	Downloader->StartDownload();
 
 	UE_LOG(LogHotUpdate, Log, TEXT("Starting download for version %s"), *LatestVersion.ToString());
