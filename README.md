@@ -7,11 +7,12 @@ Unreal Engine 5.7 热更新（OTA 补丁）插件，支持 Pak/IoStore 打包、
 - [功能特性](#功能特性)
 - [环境要求](#环境要求)
 - [快速开始](#快速开始)
+- [打包命令](#打包命令)
 - [分包功能](#分包功能)
 - [项目架构](#项目架构)
 - [目录结构](#目录结构)
-- [FAQ](#faq)
-- [故障排除](#故障排除)
+- [配置参考](#配置参考)
+- [常见问题](#常见问题)
 - [License](#license)
 
 ## 功能特性
@@ -19,10 +20,10 @@ Unreal Engine 5.7 热更新（OTA 补丁）插件，支持 Pak/IoStore 打包、
 | 功能 | 说明 |
 |------|------|
 | 运行时热更新 | 检测版本 → 下载补丁 → 挂载 Pak，全流程自动化 |
-| 增量更新 | 基于 diff 的差异下载，减少下载量 |
-| 并发下载 | 多平台差异化下载实现，支持暂停/恢复/重试 |
+| 增量更新 | 基于 IoStore 容器级别的差异下载，仅下载哈希变化的容器 |
+| 多平台下载 | HTTP 下载器（桌面）、Android 原生 DownloadManager、iOS NSURLSession 后台传输，支持暂停/恢复/重试 |
 | Pak 挂载 | 运行时动态挂载/卸载 Pak 文件，支持加密密钥注册 |
-| 版本管理 | JSON 清单格式，支持链式更新（1.0.0 → 1.0.1 → 1.0.2） |
+| 版本管理 | JSON 清单格式（latest.json 两步发现），支持链式更新（1.0.0 → 1.0.1 → 1.0.2） |
 | 编辑器工具 | 4 合 1 Slate 面板：基础包构建、补丁打包、版本对比、Pak 查看器 |
 | Blueprint 支持 | 所有运行时 API 均可从蓝图调用 |
 | 分包功能 | 支持 6 种分包策略，灵活管理资源模块化下载 |
@@ -45,13 +46,21 @@ Unreal Engine 5.7 热更新（OTA 补丁）插件，支持 Pak/IoStore 打包、
 
 ### 配置热更新服务器
 
-编辑 `Config/DefaultGame.ini`，填写你的服务器地址：
+编辑 `Config/DefaultGame.ini`，填写服务器地址：
 
 ```ini
 [/Script/HotUpdate.HotUpdateSettings]
-ManifestUrl="http://your-server.com/hotpatch/manifest.json"
+; ManifestUrl 指向 latest.json（版本发现入口），不是 manifest.json 本身
+ManifestUrl="http://your-server.com/hotpatch/latest.json"
 ResourceBaseUrl="http://your-server.com/hotpatch/"
 bAllowHttpConnection=True
+```
+
+同时在 `Config/DefaultEngine.ini` 中配置自定义 AssetManager（分包必需）：
+
+```ini
+[/Script/Engine.Engine]
+AssetManagerClassName=/Script/HotUpdate.HotUpdateAssetManager
 ```
 
 ### C++ 快速示例
@@ -62,19 +71,21 @@ bAllowHttpConnection=True
 void StartHotUpdate()
 {
     UHotUpdateManager* Manager = GetGameInstance()->GetSubsystem<UHotUpdateManager>();
-    Manager->OnUpdateCheckComplete.AddDynamic(this, &MyClass::OnCheckComplete);
+    Manager->OnVersionCheckComplete.AddDynamic(this, &MyClass::OnCheckComplete);
     Manager->CheckForUpdate();
 }
 
-void OnCheckComplete(bool bHasUpdate, const FString& Version)
+void OnCheckComplete(const FHotUpdateVersionCheckResult& Result)
 {
-    if (bHasUpdate)
+    if (Result.bHasUpdate)
     {
-        UE_LOG(LogTemp, Log, TEXT("发现新版本: %s"), *Version);
+        UE_LOG(LogTemp, Log, TEXT("发现新版本: %s"), *Result.LatestVersion.VersionString);
         Manager->StartDownload();
     }
 }
 ```
+
+> **注意**：当 `bAutoDownload=True` 时，`CheckForUpdate()` 检测到更新后会自动调用 `StartDownload()`，无需手动调用。
 
 ### 蓝图调用
 
@@ -82,16 +93,16 @@ void OnCheckComplete(bool bHasUpdate, const FString& Version)
 
 1. 获取 `HotUpdateManager` Subsystem
 2. 调用 `CheckForUpdate` 检查更新
-3. 绑定 `OnUpdateCheckComplete` 事件处理结果
+3. 绑定 `OnVersionCheckComplete` 事件处理结果
 4. 调用 `StartDownload` 开始下载
 5. 绑定 `OnDownloadProgress` 监控进度
 6. 调用 `ApplyUpdate` 应用补丁
 
-### 打包命令
+## 打包命令
 
 在编辑器中通过 **HotUpdateEditor** 面板操作，或使用命令行：
 
-#### 包类型说明
+### 包类型说明
 
 **基础包**：包含完整游戏资源的初始版本包
 
@@ -101,29 +112,38 @@ void OnCheckComplete(bool bHasUpdate, const FString& Version)
 
 ![更新包说明](Plugins/HotUpdatePlugin/Resources/hot_package.png)
 
-#### 标准打包
+### 标准打包
 
 ```bash
 # 构建基础包
-UnrealEditor-Cmd GameUpdate -run=HotUpdate -mode=base -version=1.0.0 -platform=Windows -output=D:/Output
+UnrealEditor-Cmd GameUpdate -run=HotUpdate -mode=base -version=1.0.0 -platform=Windows
 
 # 构建增量补丁
-UnrealEditor-Cmd GameUpdate -run=HotUpdate -mode=patch -version=1.0.1 -baseversion=1.0.0 -platform=Windows -output=D:/Output
+UnrealEditor-Cmd GameUpdate -run=HotUpdate -mode=patch -version=1.0.1 -baseversion=1.0.0 -platform=Windows
 ```
 
-**标准参数说明**：
+**完整参数说明**：
 
-| 参数 | 说明 |
-|------|------|
-| `-mode` | 打包模式：base（基础包）或 patch（补丁包） |
-| `-version` | 版本号（如 1.0.0） |
-| `-baseversion` | 基础版本号（patch 模式必需） |
-| `-platform` | 目标平台：Windows、Android、IOS |
-| `-output` | 输出目录路径（可选，有默认值） |
-| `-shipping` | 发布版本构建（可选） |
-| `-skipbuild` | 跳过编译步骤（可选） |
+| 参数 | 适用模式 | 说明 |
+|------|----------|------|
+| `-mode=` | both | 打包模式：`base`（基础包）或 `patch`（补丁包） |
+| `-version=` | both | 版本号（如 `1.0.0`） |
+| `-baseversion=` | patch | 基础版本号（patch 模式必需） |
+| `-platform=` | both | 目标平台：`Windows`、`Android`、`IOS` |
+| `-output=` | both | 输出目录路径（可选，有默认值） |
+| `-manifest=` | patch | 基础版本 manifest.json 路径（可选，自动搜索 `HotUpdateVersions/<ver>/` 和 `BaseVersionBuilds/<ver>/`） |
+| `-shipping` | base | 发布版本构建（默认 Development） |
+| `-skipbuild` | both | 跳过编译步骤 |
+| `-minimal` | base | 启用最小包模式 |
+| `-whitelist=` | base | 白名单目录（分号分隔，如 `/Game/UI;/Game/Startup`） |
+| `-textureformat=` | base | Android 纹理格式：`ETC2`、`ASTC`、`DXT`、`Multi` |
+| `-includebasecontainers` | patch | 包含基础版本容器（完整热更模式） |
+| `-basecontainerdir=` | patch | 基础容器目录路径（可选，自动搜索） |
+| `-skipcook` | patch | 跳过 Cook 步骤 |
+| `-incrementalcook` | patch | 增量 Cook（仅 Cook 变更资产） |
+| `-help` | both | 显示帮助 |
 
-#### 最小包模式打包
+### 最小包模式打包
 
 最小包模式用于构建"瘦身"首包，将 pakchunk1+ 资源分离到热更新目录，仅 pakchunk0 打包到最终安装包。
 
@@ -156,6 +176,34 @@ UnrealEditor-Cmd GameUpdate -run=HotUpdate -mode=base -version=1.0.0 \
 | `-minimal` | 启用最小包模式 |
 | `-whitelist=<paths>` | 白名单目录（分号分隔），必须打包到 Chunk 0 |
 | `-textureformat=<fmt>` | Android 纹理格式：ETC2、ASTC、DXT、Multi（Android 必需） |
+
+### 部署到服务器
+
+使用 `upload_hotpatch.py` 脚本将构建产物上传到 CDN 服务器：
+
+```bash
+# 安装依赖
+pip install paramiko
+
+# 执行上传（需修改脚本中的服务器地址和版本号配置）
+python upload_hotpatch.py
+```
+
+脚本工作流程：
+
+1. 通过 SSH/SFTP 连接服务器
+2. 上传 `Saved/HotUpdateVersions/<version>/<platform>/` 目录
+3. 上传 `Saved/HotUpdatePatches/<version>/<platform>/` 目录
+4. 在服务器生成 `latest.json`（指向最新版本的 manifest.json）
+5. 设置文件权限并验证 HTTP 可访问
+
+`latest.json` 格式示例：
+
+```json
+{ "manifestUrl": "http://your-server.com/hotpatch/1.0.1/Windows/manifest.json" }
+```
+
+> **提示**：使用前需修改脚本中的 `SERVER_HOST`、`REMOTE_BASE_DIR`、版本号等配置项。
 
 ## 分包功能
 
@@ -274,15 +322,71 @@ EHotUpdateChunkState State = HotUpdateManager->GetChunkState(ChunkId);
 | 类 | 说明 |
 |----|------|
 | `UHotUpdateManager` | 核心调度器，流程：CheckForUpdate → StartDownload → ApplyUpdate |
-| `UHotUpdateDownloaderBase` | 下载器抽象基类，定义统一接口，工厂函数自动选择平台实现 |
-| `UHotUpdateHttpDownloader` | HTTP 并发下载（Windows/Mac/Linux），暂停/恢复/重试/断点续传 |
+| `UHotUpdateDownloaderBase` | 下载器抽象基类，定义统一接口和工厂方法 `CreateDownloader()` |
+| `UHotUpdateHttpDownloader` | HTTP 并发下载（Windows/Mac/Linux），基于 UE FHttpModule，暂停/恢复/断点续传 |
 | `UHotUpdateAndroidDownloader` | Android 原生下载，通过 JNI 调用 DownloadManager API，App 挂起后继续下载 |
 | `UHotUpdateIOSDownloader` | iOS 后台下载，通过 NSURLSession background transfer，App 进入后台后继续下载 |
-| `UHotUpdatePakManager` | Pak 挂载/卸载/校验 |
-| `UHotUpdateManifestParser` | JSON 清单解析 |
+| `UHotUpdatePakManager` | Pak/IoStore 挂载/卸载/校验，加密密钥注册 |
+| `UHotUpdateManifestParser` | JSON 清单解析/保存 |
 | `UHotUpdateIncrementalCalculator` | 增量差异计算 |
-| `UHotUpdateVersionStorage` | 本地版本持久化 |
+| `UHotUpdateVersionStorage` | 本地版本与 manifest 持久化 |
+| `UHotUpdateAssetManager` | 自定义 AssetManager，替换 UE 默认 AssetManager 实现 Chunk 分配 |
 | `UHotUpdateSettings` | 开发者配置（服务器地址、并发数、路径等） |
+
+### 下载模块架构
+
+下载模块使用工厂模式，在编译时根据目标平台选择下载器实现：
+
+```cpp
+UHotUpdateDownloaderBase* UHotUpdateDownloaderBase::CreateDownloader(UObject* Outer)
+{
+#if PLATFORM_ANDROID
+    return NewObject<UHotUpdateAndroidDownloader>(Outer);
+#elif PLATFORM_IOS
+    return NewObject<UHotUpdateIOSDownloader>(Outer);
+#else
+    return NewObject<UHotUpdateHttpDownloader>(Outer);
+#endif
+}
+```
+
+**三平台实现对比**：
+
+| 特性 | HttpDownloader（桌面） | AndroidDownloader | IOSDownloader |
+|------|----------------------|-------------------|----------------|
+| 下载引擎 | UE FHttpModule（IHttpRequest） | Android DownloadManager（JNI） | NSURLSession background transfer |
+| 并发控制 | ActiveRequests 数组，上限 MaxConcurrentDownloads | JNI EnqueueDownloadRequest | FIOSSessionWrapper |
+| 暂停/恢复 | 取消请求 + 保留临时文件，HTTP Range 续传 | RemoveDownload + 重新入队 | NSURLSessionDownloadTask suspend/resume |
+| 进度追踪 | HTTP 回调 | 定时器轮询 JNI 状态 | delegate 回调 + 定时器 |
+| 后台下载 | 不支持 | 支持（DownloadManager） | 支持（background session） |
+
+所有下载器共享同一任务队列模式：`PendingTasks → ActiveTasks → CompletedTasks`。基类 `UHotUpdateDownloaderBase` 提供了 `AddDownloadTasks` 和 `AddContainerDownloadTasks` 的默认实现（遍历调用 `AddDownloadTask`），子类只需重写单任务接口。
+
+### 版本发现与增量更新
+
+#### latest.json 两步版本发现
+
+`CheckForUpdate()` 是两步流程，不是单次 HTTP 请求：
+
+1. 请求 `ManifestUrl`（配置为 `latest.json` 的固定 URL）
+2. 若响应包含 `manifestUrl` 字段，则再请求该 URL 获取实际 `manifest.json`
+3. 若无 `manifestUrl`，将响应本身作为 manifest 解析（向后兼容）
+
+这种设计将"最新版本是什么"的查询与 manifest 本身解耦，服务端只需维护一个轻量级的重定向文件。
+
+#### 容器级增量下载
+
+增量比较在 **IoStore 容器级别**进行（不是单个文件级别）：
+
+1. `CalculateIncrementalDownload()` 按 `ChunkId` 比较本地与服务端 manifest 中每个容器的 `UcasHash` 和 `UtocHash`
+2. 哈希相同的容器整体跳过，不重复下载
+3. 增量单位是 `.utoc` + `.ucas` 对，不是单个资产
+
+更新成功后，`UHotUpdateVersionStorage` 将完整服务端 manifest 缓存到本地磁盘。下次 `CheckForUpdate()` 时加载缓存 manifest 与服务端比较计算增量下载列表。无本地 manifest 时执行全量下载。
+
+#### Auto-Download
+
+`bAutoDownload=True` 时，`CheckForUpdate()` 检测到更新后自动在 `HandleVersionCheckResponse` 回调中调用 `StartDownload()`，一次 `CheckForUpdate()` 调用即可触发整个下载流程。
 
 ### 编辑器面板
 
@@ -297,7 +401,7 @@ EHotUpdateChunkState State = HotUpdateManager->GetChunkState(ChunkId);
 
 ```
 编辑器: 资产 → Chunk 分配 → IoStore 构建 → 清单生成 → 版本注册
-运行时: 检查更新(HTTP) → 解析清单 → 增量计算 → 下载(并发) → 校验哈希 → 挂载Pak → 更新版本
+运行时: 检查更新(HTTP) → 解析清单 → 增量计算(容器级) → 下载(并发) → 校验哈希 → 挂载Pak → 更新版本
 ```
 
 ## 目录结构
@@ -306,45 +410,108 @@ EHotUpdateChunkState State = HotUpdateManager->GetChunkState(ChunkId);
 GameUpdate/
 ├── Config/                          # 项目配置
 ├── Content/                         # UE 资产
-├── Sources/GameUpdate/               # 游戏模块
+├── Source/GameUpdate/               # 游戏模块
 │   └── UI/HotUpdateWidget.h         # 运行时 UMG 热更新界面
 ├── Plugins/HotUpdatePlugin/
 │   └── Source/
 │       ├── HotUpdate/               # 运行时模块
 │       │   ├── Public/              # 头文件
 │       │   │   ├── Core/            # 核心类
+│       │   │   │   ├── HotUpdateManager.h           # 核心调度器
+│       │   │   │   ├── HotUpdateSettings.h          # 开发者配置
+│       │   │   │   ├── HotUpdateTypes.h             # 核心类型定义
+│       │   │   │   ├── HotUpdatePakTypes.h           # Pak 相关类型
+│       │   │   │   └── HotUpdateVersionStorage.h     # 版本持久化
 │       │   │   ├── Download/        # 下载相关
-│       │   │   │   ├── HotUpdateDownloaderBase.h       # 下载器抽象基类
-│       │   │   │   ├── HotUpdateHttpDownloader.h      # HTTP 下载器（桌面平台）
-│       │   │   │   ├── HotUpdateAndroidDownloader.h   # Android 原生下载器
-│       │   │   │   └── HotUpdateIOSDownloader.h      # iOS 后台下载器
+│       │   │   │   ├── HotUpdateDownloaderBase.h     # 下载器抽象基类 + 工厂
+│       │   │   │   ├── HotUpdateHttpDownloader.h     # HTTP 下载器（桌面平台）
+│       │   │   │   ├── HotUpdateAndroidDownloader.h  # Android 原生下载器
+│       │   │   │   └── HotUpdateIOSDownloader.h     # iOS 后台下载器
 │       │   │   ├── Manifest/        # 清单相关
+│       │   │   │   ├── HotUpdateManifest.h           # 清单数据结构与解析
 │       │   │   └── Pak/             # Pak 管理
+│       │   │       ├── HotUpdatePakManager.h         # Pak 挂载/卸载/校验
+│       │   │   ├── HotUpdateAssetManager.h           # 自定义 AssetManager
+│       │   │   └── HotUpdateFileUtils.h              # 文件工具类
 │       │   └── Private/             # 实现文件
 │       └── HotUpdateEditor/         # 编辑器模块
 │           ├── Public/
+│           │   ├── HotUpdateEditorTypes.h            # 编辑器类型定义
+│           │   ├── HotUpdateCommandlet.h             # 命令行打包入口
+│           │   └── ...
 │           └── Private/
 │               └── Widgets/         # Slate 面板
-└── Build/                           # 自动化脚本
-    └── AutomationScripts/           # UAT Automation 模块
-        ├── StripExtraPakChunks.Automation.cs     # CustomStagingHandler 源码
-        └── StripExtraPakChunks.Automation.csproj # UAT 模块项目文件（必须）
+├── Build/                           # 自动化脚本
+│   └── AutomationScripts/           # UAT Automation 模块
+│       ├── StripExtraPakChunks.Automation.cs     # CustomStagingHandler 源码
+│       └── StripExtraPakChunks.Automation.csproj # UAT 模块项目文件（必须）
+└── upload_hotpatch.py               # 部署脚本：上传热更文件并生成 latest.json
 ```
 
-## FAQ
+## 配置参考
 
-### Q: Pak 挂载失败怎么办？
+### DefaultGame.ini
 
-A: 检查以下项：
+```ini
+[/Script/HotUpdate.HotUpdateSettings]
+; 服务器配置
+ManifestUrl="http://your-server.com/hotpatch/latest.json"  ; 版本发现入口（latest.json）
+ResourceBaseUrl="http://your-server.com/hotpatch/"          ; 资源下载基础 URL，支持 {version} 占位符
+bAllowHttpConnection=True                                    ; 允许 HTTP 连接（生产环境建议使用 HTTPS）
+bAutoDownload=True                                           ; 检测到更新后自动下载
+
+; 下载配置（可在 ini 中覆盖默认值）
+; MaxConcurrentDownloads=3
+; MaxRetryCount=3
+; RetryInterval=2.0
+; bEnableResume=True
+; DownloadTimeout=300.0
+
+; 存储配置
+; LocalPakDirectory="Saved/HotUpdate"
+; MaxLocalVersionCount=3
+; bAutoCleanupOldVersions=True
+
+; 行为配置
+; bAutoCheckOnStartup=True
+
+; 最小包配置
+; bEnableMinimalPackage=False
+; +WhitelistDirectories=/Game/UI
+
+[/Script/UnrealEd.ProjectPackagingSettings]
+bGenerateChunks=True                                        ; 启用分包（最小包模式必需）
+```
+
+### DefaultEngine.ini
+
+```ini
+[/Script/Engine.Engine]
+AssetManagerClassName=/Script/HotUpdate.HotUpdateAssetManager  ; 使用自定义 AssetManager（分包必需）
+```
+
+### 调试日志
+
+```ini
+[Core.Log]
+LogHotUpdate=Verbose
+LogHotUpdateEditor=Verbose
+```
+
+## 常见问题
+
+### Pak 挂载失败怎么办？
+
+检查以下项：
 
 1. Pak 文件路径是否正确（相对路径应基于项目根目录）
 2. 加密密钥是否已注册（通过 `RegisterEncryptionKey`）
 3. Pak 文件是否已损坏（校验 SHA1 哈希值）
 4. Chunk 加载顺序是否正确（依赖关系需先加载父 Chunk）
 
-### Q: 如何调试热更新流程？
+### 如何调试热更新流程？
 
-A: 在 `Config/DefaultGame.ini` 中启用调试日志：
+在 `Config/DefaultGame.ini` 中启用调试日志：
 
 ```ini
 [Core.Log]
@@ -354,27 +521,42 @@ LogHotUpdateEditor=Verbose
 
 同时可在蓝图或 C++ 中绑定各个回调事件，监控流程状态。
 
-### Q: 支持哪些平台？
+### 支持哪些平台？下载器如何选择？
 
-A: 当前支持 Windows、Android 和 iOS 平台。下载模块根据平台自动选择实现：
-- **Windows/Mac/Linux**：使用 HTTP 下载器（UE FHttpModule）
-- **Android**：使用 Android DownloadManager API，App 挂起后仍可继续下载
-- **iOS**：使用 NSURLSession 后台传输模式，App 进入后台后继续下载
+当前支持 Windows、Android 和 iOS 平台。下载模块在编译时根据目标平台自动选择实现：
 
-### Q: 增量更新如何工作？
+| 平台 | 下载器 | 后台下载 |
+|------|--------|----------|
+| Windows/Mac/Linux | `UHotUpdateHttpDownloader`（UE FHttpModule） | 不支持 |
+| Android | `UHotUpdateAndroidDownloader`（JNI + DownloadManager） | 支持 |
+| iOS | `UHotUpdateIOSDownloader`（NSURLSession background transfer） | 支持 |
 
-A: 增量更新通过 `UHotUpdateIncrementalCalculator` 计算版本差异：
+平台选择通过 `UHotUpdateDownloaderBase::CreateDownloader()` 工厂方法在编译时决定（`#if PLATFORM_*`），非运行时多态。
 
-1. 比对新旧版本的 Manifest 文件
-2. 计算文件级别的 SHA1 哈希差异
-3. 仅下载发生变化的文件
+### 增量更新如何工作？
+
+增量更新通过 `CalculateIncrementalDownload()` 在 **IoStore 容器级别**计算差异：
+
+1. 比对新旧版本 Manifest 中每个 Chunk 下的 IoStore 容器
+2. 按 `UcasHash` 和 `UtocHash` 比较，哈希相同的容器整体跳过
+3. 仅下载哈希变化的 `.utoc` + `.ucas` 容器对
 4. 支持链式更新（1.0.0 → 1.0.1 → 1.0.2）
+5. 无本地缓存 manifest 时执行全量下载
 
-### Q: 如何自定义分包策略？
+> **注意**：增量单位是容器（`.utoc` + `.ucas` 对），不是单个资产文件。
 
-A: 在编辑器面板中配置 `DirectoryChunkRules`，或通过代码设置 `FHotUpdateBaseVersionBuildConfig` 的相关参数。
+### latest.json 是什么？为什么不是直接请求 manifest.json？
 
-## 故障排除
+`ManifestUrl` 指向的是一个固定的 `latest.json` URL，而非 manifest 本身。`latest.json` 是一个轻量级重定向文件：
+
+```json
+{ "manifestUrl": "http://server/hotpatch/1.0.1/Windows/manifest.json" }
+```
+
+好处：
+- 版本发布时只需更新 `latest.json`，无需移动 manifest 文件
+- 客户端始终请求同一个 URL 即可获取最新版本
+- 向后兼容：若 `latest.json` 无 `manifestUrl` 字段，则直接作为 manifest 解析
 
 ### HTTP 连接失败
 
@@ -385,7 +567,7 @@ A: 在编辑器面板中配置 `DirectoryChunkRules`，或通过代码设置 `FH
 1. 检查 `ManifestUrl` 配置是否正确
 2. 检查服务器是否可访问（浏览器直接访问 URL 测试）
 3. 检查防火墙/网络代理设置
-4. 确保 `bAllowHttpConnection=True`（HTTP 需显式启用）
+4. 确保 `bAllowHttpConnection=True`（HTTP 需显式启用，HTTPS 无需此设置）
 
 ### Pak 校验失败
 
@@ -418,7 +600,7 @@ A: 在编辑器面板中配置 `DirectoryChunkRules`，或通过代码设置 `FH
 2. 确认依赖关系配置正确（父 Chunk 先于子 Chunk）
 3. 查看日志确认加载顺序
 
-### 最小包 StrpExtraPakChunks 未执行
+### 最小包 StripExtraPakChunks 未执行
 
 **症状**：最小包模式打包后，staging 目录中仍保留 pakchunk1+ 文件，未被移到热更输出目录
 
