@@ -4,7 +4,6 @@
 
 #include "CoreMinimal.h"
 #include "Core/HotUpdateTypes.h"
-#include "Core/HotUpdateVersionInfo.h"
 #include "Core/HotUpdatePakTypes.h"
 #include "HotUpdatePakManager.generated.h"
 
@@ -77,10 +76,6 @@ public:
 	/// 生成 Pak 挂载顺序
 	int32 CalculatePakOrder(const FString& PakName, const FHotUpdateVersionInfo& Version);
 
-protected:
-	/// 扫描本地 Pak 目录
-	void ScanLocalPaks();
-
 private:
 	/// Pak 存储目录
 	UPROPERTY(Transient)
@@ -90,13 +85,6 @@ private:
 	UPROPERTY(Transient)
 	TArray<FHotUpdatePakMetadata> MountedPaks;
 
-	/// 本地 Pak 列表缓存
-	UPROPERTY(Transient)
-	TArray<FHotUpdatePakMetadata> LocalPaksCache;
-
-	/// 平台文件原始指针（用于恢复）
-	class IPlatformFile* OriginalPlatformFile;
-
 	/// 已注册的加密密钥映射
 	UPROPERTY(Transient)
 	TMap<FString, FHotUpdateEncryptionKey> RegisteredEncryptionKeys;
@@ -104,7 +92,6 @@ private:
 	/// 加密密钥访问临界区
 	mutable FCriticalSection EncryptionKeyCriticalSection;
 
-private:
 	/// 向引擎注册加密密钥
 	bool RegisterEncryptionKeyWithEngine(const FGuid& KeyGuid, const FString& EncryptionKey);
 };

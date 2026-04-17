@@ -37,10 +37,6 @@ public:
 	UPROPERTY(Config, EditAnywhere, Category = "Download", meta = (ClampMin = "1", ClampMax = "10", UIMin = "1", UIMax = "6"))
 	int32 MaxConcurrentDownloads;
 
-	/// 单个分片大小（MB）
-	UPROPERTY(Config, EditAnywhere, Category = "Download", meta = (ClampMin = "1", UIMax = "10"))
-	int32 ChunkSizeMB;
-
 	/// 下载重试次数
 	UPROPERTY(Config, EditAnywhere, Category = "Download", meta = (ClampMin = "0", ClampMax = "10"))
 	int32 MaxRetryCount;

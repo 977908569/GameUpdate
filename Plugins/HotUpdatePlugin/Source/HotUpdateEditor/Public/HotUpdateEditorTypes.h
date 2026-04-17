@@ -4,10 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Core/HotUpdateTypes.h"
-#include "Core/HotUpdateContainerTypes.h"
-#include "Core/HotUpdateFileInfo.h"
 #include "Core/HotUpdatePakTypes.h"
-#include "Core/HotUpdateChunkTypes.h"
 #include "HotUpdateEditorTypes.generated.h"
 
 class UHotUpdatePatchPackageBuilder;

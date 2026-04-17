@@ -3,24 +3,20 @@
 #include "Core/HotUpdateManager.h"
 #include "HotUpdate.h"
 #include "Core/HotUpdateSettings.h"
-#include "Core/HotUpdateVersion.h"
 #include "Core/HotUpdateFileUtils.h"
 #include "Core/HotUpdateVersionStorage.h"
-#include "Core/HotUpdateIncrementalCalculator.h"
 #include "Download/HotUpdateDownloaderBase.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
-#include "Pak/HotUpdatePakManager.h"
-#include "Manifest/HotUpdateManifestParser.h"
-#include "Manifest/HotUpdateManifest.h"
+#include "HotUpdatePakManager.h"
+#include "HotUpdateManifest.h"
 #include "HttpModule.h"
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "HAL/PlatformFileManager.h"
-#include "HAL/FileManager.h"
 
 UHotUpdateManager::UHotUpdateManager()
 	: CurrentState(EHotUpdateState::Idle)
@@ -46,9 +42,6 @@ void UHotUpdateManager::Initialize(FSubsystemCollectionBase& Collection)
 		// 加载本地版本信息
 		VersionStorage->LoadLocalVersion(CurrentVersion);
 	}
-
-	// 创建增量下载计算器
-	IncrementalCalculator = NewObject<UHotUpdateIncrementalCalculator>(this);
 
 	// 创建下载器（通过工厂选择平台合适的实现）
 	Downloader = UHotUpdateDownloaderBase::CreateDownloader(this);
@@ -273,24 +266,22 @@ void UHotUpdateManager::HandleVersionCheckResponse(TSharedPtr<IHttpRequest> Requ
 	bHasUpdateAvailable = VersionCheckResult.bHasUpdate;
 
 	// 初始化增量下载统计
-	VersionCheckResult.UpdateFiles.Empty();
 	VersionCheckResult.UpdateContainers.Empty();
-	VersionCheckResult.SkippedFileCount = 0;
+	VersionCheckResult.SkippedContainerCount = 0;
 	VersionCheckResult.SkippedTotalSize = 0;
-	VersionCheckResult.AddedFileCount = 0;
-	VersionCheckResult.ModifiedFileCount = 0;
-	VersionCheckResult.DeletedFileCount = 0;
+	VersionCheckResult.AddedContainerCount = 0;
+	VersionCheckResult.ModifiedContainerCount = 0;
+	VersionCheckResult.DeletedContainerCount = 0;
 	VersionCheckResult.IncrementalDownloadSize = 0;
 
 	// 加载本地 Manifest 缓存进行增量对比
 	FHotUpdateManifest LocalManifest;
 	bool bHasLocalManifest = VersionStorage && VersionStorage->LoadLocalManifest(LocalManifest);
 
-	if (bHasLocalManifest && IncrementalCalculator)
+	if (bHasLocalManifest)
 	{
-		// 使用增量计算器计算需要下载的 Container（基于 Hash 对比）
-		IncrementalCalculator->CalculateIncrementalDownload(
-			ServerManifest, LocalManifest, VersionCheckResult);
+		// 计算需要下载的 Container（基于 Hash 对比）
+		CalculateIncrementalDownload(ServerManifest, LocalManifest, VersionCheckResult);
 	}
 	else
 	{
@@ -305,7 +296,7 @@ void UHotUpdateManager::HandleVersionCheckResponse(TSharedPtr<IHttpRequest> Requ
 				*Container.ContainerName, (Container.UtocSize + Container.UcasSize) / (1024.0 * 1024.0));
 		}
 
-		VersionCheckResult.AddedFileCount = ServerManifest.Containers.Num();
+		VersionCheckResult.AddedContainerCount = ServerManifest.Containers.Num();
 	}
 
 	UE_LOG(LogHotUpdate, Log, TEXT("Manifest parsed: version %s, %d containers, %d to download (%.2f MB), has update: %s"),
@@ -316,9 +307,9 @@ void UHotUpdateManager::HandleVersionCheckResponse(TSharedPtr<IHttpRequest> Requ
 		bHasUpdateAvailable ? TEXT("true") : TEXT("false"));
 
 	UE_LOG(LogHotUpdate, Log, TEXT("Incremental stats: Added=%d, Modified=%d, Skipped=%d (saved %.2f MB)"),
-		VersionCheckResult.AddedFileCount,
-		VersionCheckResult.ModifiedFileCount,
-		VersionCheckResult.SkippedFileCount,
+		VersionCheckResult.AddedContainerCount,
+		VersionCheckResult.ModifiedContainerCount,
+		VersionCheckResult.SkippedContainerCount,
 		VersionCheckResult.SkippedTotalSize / (1024.0 * 1024.0));
 
 	// 根据是否有更新设置对应状态
@@ -341,33 +332,9 @@ bool UHotUpdateManager::StartDownload()
 		return false;
 	}
 
-	// 优先使用容器下载（IoStore 模式）
-	if (VersionCheckResult.UpdateContainers.Num() > 0)
+	if (VersionCheckResult.UpdateContainers.Num() == 0)
 	{
-		if (!Downloader)
-		{
-			UE_LOG(LogHotUpdate, Error, TEXT("Downloader not initialized"));
-			return false;
-		}
-
-		SetState(EHotUpdateState::Downloading);
-
-		UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
-		FString SaveDir = Settings->GetLocalPakFullPath() / LatestVersion.ToString();
-		FString DownloadBaseUrl = BuildDownloadBaseUrl();
-
-		Downloader->AddContainerDownloadTasks(VersionCheckResult.UpdateContainers, DownloadBaseUrl, SaveDir);
-		Downloader->StartDownload();
-
-		UE_LOG(LogHotUpdate, Log, TEXT("Starting container download for version %s, %d containers"),
-			*LatestVersion.ToString(), VersionCheckResult.UpdateContainers.Num());
-		return true;
-	}
-
-	// 如果没有容器需要下载，检查是否有文件需要下载（兼容旧模式）
-	if (VersionCheckResult.UpdateFiles.Num() == 0)
-	{
-		UE_LOG(LogHotUpdate, Warning, TEXT("No update files or containers to download"));
+		UE_LOG(LogHotUpdate, Warning, TEXT("No containers to download"));
 		return false;
 	}
 
@@ -383,10 +350,11 @@ bool UHotUpdateManager::StartDownload()
 	FString SaveDir = Settings->GetLocalPakFullPath() / LatestVersion.ToString();
 	FString DownloadBaseUrl = BuildDownloadBaseUrl();
 
-	Downloader->AddDownloadTasks(VersionCheckResult.UpdateFiles, DownloadBaseUrl, SaveDir);
+	Downloader->AddContainerDownloadTasks(VersionCheckResult.UpdateContainers, DownloadBaseUrl, SaveDir);
 	Downloader->StartDownload();
 
-	UE_LOG(LogHotUpdate, Log, TEXT("Starting download for version %s"), *LatestVersion.ToString());
+	UE_LOG(LogHotUpdate, Log, TEXT("Starting container download for version %s, %d containers"),
+		*LatestVersion.ToString(), VersionCheckResult.UpdateContainers.Num());
 	return true;
 }
 
@@ -518,127 +486,6 @@ bool UHotUpdateManager::ApplyUpdate()
 
 	OnApplyComplete.Broadcast(bSuccess, bSuccess ? TEXT("") : TEXT("Update verification or installation failed"));
 	return bSuccess;
-}
-
-bool UHotUpdateManager::Rollback()
-{
-	if (!PakManager)
-	{
-		UE_LOG(LogHotUpdate, Error, TEXT("PakManager not initialized"));
-		return false;
-	}
-
-	SetState(EHotUpdateState::Rollback);
-
-	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
-	FString PakRootDir = Settings->GetLocalPakFullPath();
-
-	// 获取本地版本历史
-	TArray<FHotUpdateVersionInfo> VersionHistory;
-	if (VersionStorage)
-	{
-		VersionHistory = VersionStorage->GetLocalVersionHistory();
-	}
-
-	if (VersionHistory.Num() < 2)
-	{
-		UE_LOG(LogHotUpdate, Error, TEXT("No previous version available for rollback"));
-		SetState(EHotUpdateState::Failed);
-		return false;
-	}
-
-	// 获取上一版本（倒数第二个）
-	FHotUpdateVersionInfo PreviousVersion = VersionHistory[VersionHistory.Num() - 2];
-
-	// 卸载当前版本的 Pak/IoStore
-	FString CurrentPakDir = PakRootDir / CurrentVersion.ToString();
-	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
-
-	if (PlatformFile.DirectoryExists(*CurrentPakDir))
-	{
-		TArray<FString> CurrentPakFiles;
-		PlatformFile.FindFilesRecursively(CurrentPakFiles, *CurrentPakDir, TEXT(".pak"));
-
-		// 也查找 .utoc 文件
-		TArray<FString> CurrentUtocFiles;
-		PlatformFile.FindFilesRecursively(CurrentUtocFiles, *CurrentPakDir, TEXT(".utoc"));
-
-		for (const FString& PakFile : CurrentPakFiles)
-		{
-			if (PakManager->UnmountPak(PakFile))
-			{
-				UE_LOG(LogHotUpdate, Log, TEXT("Unmounted pak file: %s"), *PakFile);
-			}
-		}
-
-		for (const FString& UtocFile : CurrentUtocFiles)
-		{
-			if (PakManager->UnmountPak(UtocFile))
-			{
-				UE_LOG(LogHotUpdate, Log, TEXT("Unmounted IoStore container: %s"), *UtocFile);
-			}
-		}
-	}
-
-	// 挂载上一版本的 Pak/IoStore
-	FString PreviousPakDir = PakRootDir / PreviousVersion.ToString();
-	if (PlatformFile.DirectoryExists(*PreviousPakDir))
-	{
-		TArray<FString> PreviousPakFiles;
-		PlatformFile.FindFilesRecursively(PreviousPakFiles, *PreviousPakDir, TEXT(".pak"));
-
-		TArray<FString> PreviousUtocFiles;
-		PlatformFile.FindFilesRecursively(PreviousUtocFiles, *PreviousPakDir, TEXT(".utoc"));
-
-		int32 MountedCount = 0;
-		for (const FString& PakFile : PreviousPakFiles)
-		{
-			FHotUpdatePakMetadata PrevMetadata = PakManager->ParsePakMetadata(PakFile);
-			int32 PrevPakOrder = PakManager->CalculatePakOrder(PrevMetadata.PakName, PrevMetadata.Version);
-			if (PakManager->MountPak(PakFile, PrevPakOrder))
-			{
-				MountedCount++;
-				UE_LOG(LogHotUpdate, Log, TEXT("Mounted previous version pak: %s"), *PakFile);
-			}
-		}
-
-		for (const FString& UtocFile : PreviousUtocFiles)
-		{
-			FHotUpdatePakMetadata PrevUtocMetadata = PakManager->ParsePakMetadata(UtocFile);
-			int32 PrevUtocPakOrder = PakManager->CalculatePakOrder(PrevUtocMetadata.PakName, PrevUtocMetadata.Version);
-			if (PakManager->MountPak(UtocFile, PrevUtocPakOrder))
-			{
-				MountedCount++;
-				UE_LOG(LogHotUpdate, Log, TEXT("Mounted previous version IoStore container: %s"), *UtocFile);
-			}
-		}
-
-		if (MountedCount > 0)
-		{
-			// 更新当前版本
-			CurrentVersion = PreviousVersion;
-			if (VersionStorage)
-			{
-				VersionStorage->SaveLocalVersion(CurrentVersion);
-
-				// 回滚时更新本地 Manifest 缓存，确保下次增量下载对比正确
-				FHotUpdateManifest PreviousManifest;
-				if (VersionStorage->LoadLocalManifest(PreviousManifest))
-				{
-					VersionStorage->SaveLocalManifest(PreviousManifest);
-					UE_LOG(LogHotUpdate, Log, TEXT("Updated local manifest cache for rollback version: %s"), *PreviousVersion.ToString());
-				}
-			}
-
-			SetState(EHotUpdateState::Success);
-			UE_LOG(LogHotUpdate, Log, TEXT("Rollback successful to version: %s"), *PreviousVersion.ToString());
-			return true;
-		}
-	}
-
-	UE_LOG(LogHotUpdate, Error, TEXT("Failed to rollback - no valid pak/IoStore files found for previous version"));
-	SetState(EHotUpdateState::Failed);
-	return false;
 }
 
 void UHotUpdateManager::CleanupOldVersions()
@@ -777,21 +624,6 @@ bool UHotUpdateManager::VerifyDownloadedFiles()
 		return true;
 	};
 
-	// 验证文件列表
-	for (const FHotUpdateFileInfo& FileInfo : VersionCheckResult.UpdateFiles)
-	{
-		FString FilePath = SaveDir / FileInfo.FilePath;
-		if (VerifyFile(FilePath, FileInfo.FileSize, FileInfo.FileHash))
-		{
-			VerifiedCount++;
-			UE_LOG(LogHotUpdate, Verbose, TEXT("Verified: %s"), *FilePath);
-		}
-		else
-		{
-			FailedCount++;
-		}
-	}
-
 	// 验证容器文件（IoStore 模式）
 	for (const FHotUpdateContainerInfo& Container : VersionCheckResult.UpdateContainers)
 	{
@@ -826,7 +658,7 @@ bool UHotUpdateManager::VerifyDownloadedFiles()
 
 	if (VerifiedCount == 0 && FailedCount == 0)
 	{
-		UE_LOG(LogHotUpdate, Warning, TEXT("No files or containers to verify"));
+		UE_LOG(LogHotUpdate, Warning, TEXT("No containers to verify"));
 		return true;
 	}
 
@@ -844,15 +676,6 @@ FString UHotUpdateManager::BuildDownloadBaseUrl() const
 	}
 	Url += LatestVersion.VersionString + TEXT("/") + CachedServerManifest.VersionInfo.Platform + TEXT("/");
 	return Url;
-}
-
-TArray<FHotUpdateVersionInfo> UHotUpdateManager::GetLocalVersionHistory() const
-{
-	if (VersionStorage)
-	{
-		return VersionStorage->GetLocalVersionHistory();
-	}
-	return TArray<FHotUpdateVersionInfo>();
 }
 
 void UHotUpdateManager::HandleDownloadProgress(const FHotUpdateProgress& Progress)
@@ -876,4 +699,96 @@ void UHotUpdateManager::HandleDownloadComplete(bool bSuccess, const FString& Err
 	}
 
 	OnDownloadComplete.Broadcast(bSuccess);
+}
+
+void UHotUpdateManager::CalculateIncrementalDownload(
+	const FHotUpdateManifest& ServerManifest,
+	const FHotUpdateManifest& LocalManifest,
+	FHotUpdateVersionCheckResult& OutResult)
+{
+	// 构建本地 Container 索引（ChunkId -> Container）
+	TMap<int32, const FHotUpdateContainerInfo*> LocalContainerIndex;
+	for (const FHotUpdateContainerInfo& Container : LocalManifest.Containers)
+	{
+		LocalContainerIndex.Add(Container.ChunkId, &Container);
+	}
+
+	// 遍历服务端 Containers，分析差异
+	for (const FHotUpdateContainerInfo& ServerContainer : ServerManifest.Containers)
+	{
+		const FHotUpdateContainerInfo* const* LocalContainerPtr = LocalContainerIndex.Find(ServerContainer.ChunkId);
+
+		bool bNeedDownload = false;
+		FString Reason;
+
+		if (LocalContainerPtr == nullptr)
+		{
+			// 新增 Container
+			bNeedDownload = true;
+			Reason = TEXT("new container");
+			OutResult.AddedContainerCount++;
+		}
+		else
+		{
+			const FHotUpdateContainerInfo* LocalContainer = *LocalContainerPtr;
+
+			// 对比 Hash 判断是否需要更新
+			if (LocalContainer->UcasHash != ServerContainer.UcasHash)
+			{
+				bNeedDownload = true;
+				Reason = TEXT("ucas hash changed");
+				OutResult.ModifiedContainerCount++;
+			}
+			else if (LocalContainer->UtocHash != ServerContainer.UtocHash)
+			{
+				bNeedDownload = true;
+				Reason = TEXT("utoc hash changed");
+				OutResult.ModifiedContainerCount++;
+			}
+		}
+
+		if (bNeedDownload)
+		{
+			OutResult.UpdateContainers.Add(ServerContainer);
+			OutResult.IncrementalDownloadSize += ServerContainer.UtocSize + ServerContainer.UcasSize;
+
+			UE_LOG(LogHotUpdate, Log, TEXT("Need download container: %s (chunkId: %d, reason: %s, size: %.2f MB)"),
+				*ServerContainer.ContainerName, ServerContainer.ChunkId, *Reason,
+				(ServerContainer.UtocSize + ServerContainer.UcasSize) / (1024.0 * 1024.0));
+		}
+		else
+		{
+			OutResult.SkippedContainerCount++;
+			OutResult.SkippedTotalSize += ServerContainer.UtocSize + ServerContainer.UcasSize;
+			UE_LOG(LogHotUpdate, Verbose, TEXT("Skipped container: %s (chunkId: %d, unchanged)"),
+				*ServerContainer.ContainerName, ServerContainer.ChunkId);
+		}
+	}
+
+	// 检测已删除的 Container（存在于本地但不在服务端）
+	for (const FHotUpdateContainerInfo& LocalContainer : LocalManifest.Containers)
+	{
+		bool bFound = false;
+		for (const FHotUpdateContainerInfo& ServerContainer : ServerManifest.Containers)
+		{
+			if (ServerContainer.ChunkId == LocalContainer.ChunkId)
+			{
+				bFound = true;
+				break;
+			}
+		}
+
+		if (!bFound)
+		{
+			OutResult.DeletedContainerCount++;
+			UE_LOG(LogHotUpdate, Verbose, TEXT("Deleted container: %s (chunkId: %d)"),
+				*LocalContainer.ContainerName, LocalContainer.ChunkId);
+		}
+	}
+
+	UE_LOG(LogHotUpdate, Log, TEXT("Incremental analysis complete: %d added, %d modified, %d deleted, %d skipped"),
+		OutResult.AddedContainerCount, OutResult.ModifiedContainerCount, OutResult.DeletedContainerCount, OutResult.SkippedContainerCount);
+
+	UE_LOG(LogHotUpdate, Log, TEXT("Required containers: %d, total download size: %.2f MB"),
+		OutResult.UpdateContainers.Num(), OutResult.IncrementalDownloadSize / (1024.0 * 1024.0));
 }

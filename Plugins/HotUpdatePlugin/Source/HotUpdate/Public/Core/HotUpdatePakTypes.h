@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Core/HotUpdateVersionInfo.h"
+#include "Core/HotUpdateTypes.h"
 #include "HotUpdatePakTypes.generated.h"
 
 /**

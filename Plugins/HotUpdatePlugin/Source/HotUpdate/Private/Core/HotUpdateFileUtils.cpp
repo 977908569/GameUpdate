@@ -121,14 +121,3 @@ bool UHotUpdateFileUtils::HexToBytes(const FString& HexString, TArray<uint8>& Ou
 
 	return true;
 }
-
-bool UHotUpdateFileUtils::FileExists(const FString& FilePath)
-{
-	return IFileManager::Get().FileExists(*FilePath);
-}
-
-bool UHotUpdateFileUtils::DeleteDirectoryRecursively(const FString& DirectoryPath)
-{
-	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
-	return PlatformFile.DeleteDirectoryRecursively(*DirectoryPath);
-}

@@ -4,16 +4,13 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
-#include "HotUpdateTypes.h"
-#include "HotUpdateProgress.h"
-#include "HotUpdateVersion.h"
-#include "Manifest/HotUpdateManifest.h"
+#include "Core/HotUpdateTypes.h"
+#include "HotUpdateManifest.h"
 #include "HotUpdateManager.generated.h"
 
 class UHotUpdateDownloaderBase;
 class UHotUpdatePakManager;
 class UHotUpdateVersionStorage;
-class UHotUpdateIncrementalCalculator;
 
 /**
  * 热更新管理器
@@ -64,23 +61,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Main")
 	bool ApplyUpdate();
 
-	/// 回滚到上一版本
-	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Main")
-	bool Rollback();
-
-	/// 清理旧版本
-	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Main")
-	void CleanupOldVersions();
-
 	// == 状态查询 ==
 
 	/// 获取当前状态
 	UFUNCTION(BlueprintPure, Category = "HotUpdate|State")
 	EHotUpdateState GetCurrentState() const { return CurrentState; }
-
-	/// 是否有可用更新
-	UFUNCTION(BlueprintPure, Category = "HotUpdate|State")
-	bool HasUpdateAvailable() const { return bHasUpdateAvailable; }
 
 	/// 获取当前版本
 	UFUNCTION(BlueprintPure, Category = "HotUpdate|State")
@@ -93,14 +78,6 @@ public:
 	/// 获取下载进度
 	UFUNCTION(BlueprintPure, Category = "HotUpdate|State")
 	FHotUpdateProgress GetDownloadProgress() const { return DownloadProgress; }
-
-	/// 是否正在下载
-	UFUNCTION(BlueprintPure, Category = "HotUpdate|State")
-	bool IsDownloading() const { return CurrentState == EHotUpdateState::Downloading; }
-
-	/// 获取本地版本历史
-	UFUNCTION(BlueprintPure, Category = "HotUpdate|State")
-	TArray<FHotUpdateVersionInfo> GetLocalVersionHistory() const;
 
 	// == 事件委托 ==
 
@@ -149,6 +126,9 @@ protected:
 	/// 构建资源下载基础 URL
 	FString BuildDownloadBaseUrl() const;
 
+	/// 清理旧版本
+	void CleanupOldVersions();
+
 	/// 下载进度回调
 	UFUNCTION()
 	void HandleDownloadProgress(const FHotUpdateProgress& Progress);
@@ -158,6 +138,12 @@ protected:
 	void HandleDownloadComplete(bool bSuccess, const FString& ErrorMessage);
 
 private:
+	/// 计算增量下载列表（Container 级对比）
+	void CalculateIncrementalDownload(
+		const FHotUpdateManifest& ServerManifest,
+		const FHotUpdateManifest& LocalManifest,
+		FHotUpdateVersionCheckResult& OutResult);
+
 	/// 当前状态
 	UPROPERTY(Transient)
 	EHotUpdateState CurrentState;
@@ -193,10 +179,6 @@ private:
 	/// 版本存储管理器
 	UPROPERTY(Transient)
 	TObjectPtr<UHotUpdateVersionStorage> VersionStorage;
-
-	/// 增量下载计算器
-	UPROPERTY(Transient)
-	TObjectPtr<UHotUpdateIncrementalCalculator> IncrementalCalculator;
 
 	/// HTTP 请求句柄
 	TSharedPtr<class IHttpRequest> VersionCheckRequest;

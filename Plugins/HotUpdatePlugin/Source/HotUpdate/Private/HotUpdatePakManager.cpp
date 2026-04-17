@@ -1,6 +1,6 @@
 // Copyright czm. All Rights Reserved.
 
-#include "Pak/HotUpdatePakManager.h"
+#include "HotUpdatePakManager.h"
 #include "HotUpdate.h"
 #include "Core/HotUpdateFileUtils.h"
 #include "IPlatformFilePak.h"
@@ -11,14 +11,12 @@
 #include "Misc/FileHelper.h"
 
 UHotUpdatePakManager::UHotUpdatePakManager()
-	: OriginalPlatformFile(nullptr)
 {
 }
 
 void UHotUpdatePakManager::Initialize(const FString& InPakDirectory)
 {
 	PakDirectory = InPakDirectory;
-	OriginalPlatformFile = &FPlatformFileManager::Get().GetPlatformFile();
 
 	// 确保目录存在
 	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
@@ -27,10 +25,7 @@ void UHotUpdatePakManager::Initialize(const FString& InPakDirectory)
 		PlatformFile.CreateDirectoryTree(*PakDirectory);
 	}
 
-	// 扫描本地 Pak 文件
-	ScanLocalPaks();
-
-	UE_LOG(LogHotUpdate, Log, TEXT("PakManager initialized. Directory: %s, Local Paks: %d"), *PakDirectory, LocalPaksCache.Num());
+	UE_LOG(LogHotUpdate, Log, TEXT("PakManager initialized. Directory: %s"), *PakDirectory);
 }
 
 bool UHotUpdatePakManager::MountPak(const FString& PakPath, int32 PakOrder, const FString& EncryptionKey)
@@ -258,39 +253,6 @@ TArray<FHotUpdatePakEntry> UHotUpdatePakManager::GetPakEntries(const FString& Pa
 	}
 
 	return Entries;
-}
-
-void UHotUpdatePakManager::ScanLocalPaks()
-{
-	LocalPaksCache.Empty();
-
-	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
-	if (!PlatformFile.DirectoryExists(*PakDirectory))
-	{
-		return;
-	}
-
-	// 遍历目录查找 .pak 文件
-	TArray<FString> FoundPakFiles;
-	PlatformFile.FindFilesRecursively(FoundPakFiles, *PakDirectory, TEXT(".pak"));
-
-	for (const FString& File : FoundPakFiles)
-	{
-		FHotUpdatePakMetadata Metadata = ParsePakMetadata(File);
-		LocalPaksCache.Add(Metadata);
-	}
-
-	// 遍历目录查找 .utoc 文件（IoStore 容器）
-	TArray<FString> FoundUtocFiles;
-	PlatformFile.FindFilesRecursively(FoundUtocFiles, *PakDirectory, TEXT(".utoc"));
-
-	for (const FString& File : FoundUtocFiles)
-	{
-		FHotUpdatePakMetadata Metadata = ParsePakMetadata(File);
-		LocalPaksCache.Add(Metadata);
-	}
-
-	UE_LOG(LogHotUpdate, Verbose, TEXT("Found %d local Pak/IoStore files"), LocalPaksCache.Num());
 }
 
 FHotUpdatePakMetadata UHotUpdatePakManager::ParsePakMetadata(const FString& PakPath)

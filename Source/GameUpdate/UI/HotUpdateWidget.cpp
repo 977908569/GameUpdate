@@ -7,9 +7,6 @@
 #include "Components/WidgetSwitcher.h"
 #include "Core/HotUpdateManager.h"
 #include "Core/HotUpdateTypes.h"
-#include "Core/HotUpdateVersion.h"
-#include "Core/HotUpdateProgress.h"
-#include "Core/HotUpdateVersionInfo.h"
 #include "UObject/UObjectGlobals.h"
 
 UHotUpdateWidget::UHotUpdateWidget(const FObjectInitializer& ObjectInitializer)

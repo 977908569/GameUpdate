@@ -3,10 +3,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Core/HotUpdateVersionInfo.h"
-#include "Core/HotUpdateVersion.h"
-#include "Manifest/HotUpdateManifest.h"
+#include "Core/HotUpdateTypes.h"
 #include "HotUpdateVersionStorage.generated.h"
+
+struct FHotUpdateManifest;
 
 /**
  * 版本存储管理器
@@ -43,12 +43,6 @@ public:
 	 */
 	bool SaveLocalVersion(const FHotUpdateVersionInfo& Version);
 
-	/**
-	 * 获取本地版本历史
-	 * @return 版本历史列表（按版本号降序）
-	 */
-	TArray<FHotUpdateVersionInfo> GetLocalVersionHistory() const;
-
 	// == Manifest 管理 ==
 
 	/**
@@ -72,12 +66,6 @@ public:
 
 	/** 获取 Manifest 文件路径 */
 	FString GetManifestFilePath() const { return StoragePath / TEXT("manifest.json"); }
-
-	/** 获取指定版本的 Pak 目录路径 */
-	FString GetVersionPakPath(const FHotUpdateVersionInfo& Version) const { return StoragePath / Version.ToString(); }
-
-	/** 获取存储根目录 */
-	const FString& GetStoragePath() const { return StoragePath; }
 
 private:
 	/** 存储根目录 */

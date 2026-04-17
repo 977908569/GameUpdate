@@ -46,18 +46,4 @@ public:
 	 * @return 是否转换成功
 	 */
 	static bool HexToBytes(const FString& HexString, TArray<uint8>& OutBytes);
-
-	/**
-	 * 检查文件是否存在
-	 * @param FilePath 文件路径
-	 * @return 文件是否存在
-	 */
-	static bool FileExists(const FString& FilePath);
-
-	/**
-	 * 删除目录及其内容
-	 * @param DirectoryPath 目录路径
-	 * @return 是否成功
-	 */
-	static bool DeleteDirectoryRecursively(const FString& DirectoryPath);
 };

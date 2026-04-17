@@ -1,7 +1,6 @@
 // Copyright czm. All Rights Reserved.
 
 #include "HotUpdate.h"
-#include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 
 // 日志分类定义

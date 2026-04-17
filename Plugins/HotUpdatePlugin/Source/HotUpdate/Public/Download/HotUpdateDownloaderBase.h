@@ -4,9 +4,6 @@
 
 #include "CoreMinimal.h"
 #include "Core/HotUpdateTypes.h"
-#include "Core/HotUpdateProgress.h"
-#include "Core/HotUpdateFileInfo.h"
-#include "Core/HotUpdateContainerTypes.h"
 #include "HotUpdateDownloaderBase.generated.h"
 
 /**

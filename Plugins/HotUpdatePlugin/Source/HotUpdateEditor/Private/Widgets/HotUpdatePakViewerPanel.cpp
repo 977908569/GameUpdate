@@ -4,7 +4,7 @@
 #include "HotUpdateDiffTool.h"
 #include "HotUpdateEditor.h"
 #include "HotUpdateEditorStyle.h"
-#include "Pak/HotUpdatePakManager.h"
+#include "HotUpdatePakManager.h"
 #include "EditorStyleSet.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/Input/SButton.h"

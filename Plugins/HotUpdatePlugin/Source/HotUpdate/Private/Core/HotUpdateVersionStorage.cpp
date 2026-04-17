@@ -3,9 +3,10 @@
 #include "Core/HotUpdateVersionStorage.h"
 #include "Core/HotUpdateFileUtils.h"
 #include "HotUpdate.h"
-#include "Manifest/HotUpdateManifestParser.h"
+#include "HotUpdateManifest.h"
 #include "Misc/FileHelper.h"
 #include "HAL/PlatformFileManager.h"
+#include "HAL/FileManager.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -26,7 +27,7 @@ bool UHotUpdateVersionStorage::LoadLocalVersion(FHotUpdateVersionInfo& OutVersio
 {
 	FString VersionFilePath = GetVersionFilePath();
 
-	if (!UHotUpdateFileUtils::FileExists(VersionFilePath))
+	if (!IFileManager::Get().FileExists(*VersionFilePath))
 	{
 		UE_LOG(LogHotUpdate, Log, TEXT("Version file not found: %s"), *VersionFilePath);
 		OutVersion = FHotUpdateVersionInfo();
@@ -98,70 +99,11 @@ bool UHotUpdateVersionStorage::SaveLocalVersion(const FHotUpdateVersionInfo& Ver
 	}
 }
 
-TArray<FHotUpdateVersionInfo> UHotUpdateVersionStorage::GetLocalVersionHistory() const
-{
-	TArray<FHotUpdateVersionInfo> History;
-	TSet<FHotUpdateVersionInfo> AddedVersions;
-
-	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
-	if (!PlatformFile.DirectoryExists(*StoragePath))
-	{
-		return History;
-	}
-
-	// 遍历版本目录
-	PlatformFile.IterateDirectory(*StoragePath, [&History, &AddedVersions, this, &PlatformFile](const TCHAR* Path, bool bIsDirectory)
-	{
-		if (bIsDirectory)
-		{
-			FString VersionStr = FPaths::GetCleanFilename(Path);
-
-			// 尝试从目录名解析版本
-			FHotUpdateVersionInfo Version = FHotUpdateVersionInfo::FromString(VersionStr);
-
-			// 检查版本文件是否存在
-			FString VersionFile = FString(Path) / TEXT("version.json");
-			if (PlatformFile.FileExists(*VersionFile))
-			{
-				FString JsonString;
-				if (FFileHelper::LoadFileToString(JsonString, *VersionFile))
-				{
-					TSharedPtr<FJsonObject> JsonObject;
-					TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonString);
-					if (FJsonSerializer::Deserialize(Reader, JsonObject) && JsonObject.IsValid())
-					{
-						JsonObject->TryGetNumberField(TEXT("majorVersion"), Version.MajorVersion);
-						JsonObject->TryGetNumberField(TEXT("minorVersion"), Version.MinorVersion);
-						JsonObject->TryGetNumberField(TEXT("patchVersion"), Version.PatchVersion);
-						JsonObject->TryGetNumberField(TEXT("buildNumber"), Version.BuildNumber);
-						JsonObject->TryGetStringField(TEXT("versionString"), Version.VersionString);
-					}
-				}
-			}
-
-			if (!AddedVersions.Contains(Version) && Version.MajorVersion > 0)
-			{
-				History.Add(Version);
-				AddedVersions.Add(Version);
-			}
-		}
-		return true;
-	});
-
-	// 按版本号排序（最新的在前）
-	History.Sort([](const FHotUpdateVersionInfo& A, const FHotUpdateVersionInfo& B)
-	{
-		return A > B;
-	});
-
-	return History;
-}
-
 bool UHotUpdateVersionStorage::LoadLocalManifest(FHotUpdateManifest& OutManifest)
 {
 	FString ManifestPath = GetManifestFilePath();
 
-	if (!UHotUpdateFileUtils::FileExists(ManifestPath))
+	if (!IFileManager::Get().FileExists(*ManifestPath))
 	{
 		UE_LOG(LogHotUpdate, Verbose, TEXT("Local manifest not found: %s"), *ManifestPath);
 		return false;
@@ -180,8 +122,8 @@ bool UHotUpdateVersionStorage::LoadLocalManifest(FHotUpdateManifest& OutManifest
 		return false;
 	}
 
-	UE_LOG(LogHotUpdate, Log, TEXT("Loaded local manifest: version %s, %d files"),
-		*OutManifest.VersionInfo.ToString(), OutManifest.Files.Num());
+	UE_LOG(LogHotUpdate, Log, TEXT("Loaded local manifest: version %s, %d containers"),
+		*OutManifest.VersionInfo.ToString(), OutManifest.Containers.Num());
 	return true;
 }
 

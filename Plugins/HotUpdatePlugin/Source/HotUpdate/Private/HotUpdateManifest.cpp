@@ -1,6 +1,6 @@
 // Copyright czm. All Rights Reserved.
 
-#include "Manifest/HotUpdateManifestParser.h"
+#include "HotUpdateManifest.h"
 #include "HotUpdate.h"
 #include "Misc/FileHelper.h"
 #include "Dom/JsonObject.h"
@@ -49,11 +49,6 @@ bool UHotUpdateManifestParser::ParseFromJson(const FString& JsonString, FHotUpda
 		}
 	}
 
-	// 解析全量热更新标志
-	JsonObject->TryGetBoolField(TEXT("bIncludesBaseContainers"), OutManifest.bIncludesBaseContainers);
-	JsonObject->TryGetBoolField(TEXT("bRequiresBasePackage"), OutManifest.bRequiresBasePackage);
-	JsonObject->TryGetNumberField(TEXT("totalDownloadSize"), OutManifest.TotalDownloadSize);
-
 	// 解析基础版本号
 	JsonObject->TryGetStringField(TEXT("baseVersion"), OutManifest.BaseVersion);
 
@@ -98,8 +93,6 @@ bool UHotUpdateManifestParser::ParseFromJson(const FString& JsonString, FHotUpda
 		}
 	}
 
-	OutManifest.BuildPathIndex();
-
 	UE_LOG(LogHotUpdate, Log, TEXT("Parsed manifest: version %s, %d containers"),
 		*OutManifest.VersionInfo.VersionString,
 		OutManifest.Containers.Num());
@@ -139,11 +132,6 @@ FString UHotUpdateManifestParser::ToJsonString(const FHotUpdateManifest& Manifes
 	VersionObject->SetStringField(TEXT("platform"), Manifest.VersionInfo.Platform);
 	VersionObject->SetNumberField(TEXT("timestamp"), Manifest.VersionInfo.Timestamp);
 	JsonObject->SetObjectField(TEXT("version"), VersionObject);
-
-	// 全量热更新标志
-	JsonObject->SetBoolField(TEXT("bIncludesBaseContainers"), Manifest.bIncludesBaseContainers);
-	JsonObject->SetBoolField(TEXT("bRequiresBasePackage"), Manifest.bRequiresBasePackage);
-	JsonObject->SetNumberField(TEXT("totalDownloadSize"), Manifest.TotalDownloadSize);
 
 	// 基础版本号
 	if (!Manifest.BaseVersion.IsEmpty())

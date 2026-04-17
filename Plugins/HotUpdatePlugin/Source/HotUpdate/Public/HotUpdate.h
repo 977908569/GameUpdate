@@ -12,8 +12,6 @@
 DECLARE_LOG_CATEGORY_EXTERN(LogHotUpdate, Verbose, All);
 
 // 公共头文件包含
-#include "Core/HotUpdateVersionInfo.h"
 #include "Core/HotUpdateTypes.h"
-#include "Core/HotUpdateVersion.h"
 #include "Core/HotUpdateSettings.h"
 #include "Core/HotUpdateManager.h"
