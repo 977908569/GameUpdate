@@ -64,7 +64,7 @@ struct FHotUpdateResolvedAssetInfo
 		}
 
 		// 派生 SourcePath
-		SourcePath = UHotUpdatePackageHelper::GetAssetSourcePath(AssetPath);
+		SourcePath = FHotUpdatePackageHelper::GetAssetSourcePath(AssetPath);
 	}
 
 	/**
@@ -1012,7 +1012,7 @@ TArray<FHotUpdateResolvedAssetInfo> UHotUpdateBaseVersionBuilder::ResolveAssetIn
 
 	for (const FString& AssetPath : AssetPaths)
 	{
-		FString DiskPath = UHotUpdatePackageHelper::GetAssetDiskPath(AssetPath, CookedPlatformDir);
+		FString DiskPath = FHotUpdatePackageHelper::GetAssetDiskPath(AssetPath, CookedPlatformDir);
 
 		if (!DiskPath.IsEmpty() && FPaths::FileExists(*DiskPath))
 		{

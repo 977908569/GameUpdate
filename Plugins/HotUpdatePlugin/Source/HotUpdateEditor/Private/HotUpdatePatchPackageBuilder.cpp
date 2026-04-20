@@ -51,7 +51,7 @@ FHotUpdatePatchPackageResult UHotUpdatePatchPackageBuilder::BuildPatchPackage(co
 	if (!CurrentConfig.bSkipBuild)
 	{
 		UpdateProgress(TEXT("编译项目"), TEXT(""), 0, 0);
-		if (!UHotUpdatePackageHelper::CompileProject(CurrentConfig.Platform))
+		if (!FHotUpdatePackageHelper::CompileProject(CurrentConfig.Platform))
 		{
 			Result.bSuccess = false;
 			Result.ErrorMessage = TEXT("项目编译失败");
@@ -76,7 +76,7 @@ FHotUpdatePatchPackageResult UHotUpdatePatchPackageBuilder::BuildPatchPackage(co
 		{
 			// 全量 Cook 模式：先 Cook 再 Diff
 			UpdateProgress(TEXT("Cook 资源"), TEXT(""), 0, 0);
-			if (!UHotUpdatePackageHelper::CookAssets(CurrentConfig.Platform))
+			if (!FHotUpdatePackageHelper::CookAssets(CurrentConfig.Platform))
 			{
 				Result.bSuccess = false;
 				Result.ErrorMessage = TEXT("Cook 资源失败");
@@ -265,11 +265,11 @@ FHotUpdatePatchPackageResult UHotUpdatePatchPackageBuilder::BuildPatchPackage(co
 		if (AssetsToCook.Num() > 0)
 		{
 			UpdateProgress(TEXT("增量 Cook 资源"), TEXT(""), 0, AssetsToCook.Num());
-			if (!UHotUpdatePackageHelper::CookAssets(CurrentConfig.Platform, AssetsToCook))
+			if (!FHotUpdatePackageHelper::CookAssets(CurrentConfig.Platform, AssetsToCook))
 			{
 				// 增量 Cook 失败，回退到全量 Cook
 				UE_LOG(LogHotUpdateEditor, Warning, TEXT("增量 Cook 失败，回退到全量 Cook"));
-				if (!UHotUpdatePackageHelper::CookAssets(CurrentConfig.Platform))
+				if (!FHotUpdatePackageHelper::CookAssets(CurrentConfig.Platform))
 				{
 					Result.bSuccess = false;
 					Result.ErrorMessage = TEXT("Cook 资源失败");
@@ -284,11 +284,11 @@ FHotUpdatePatchPackageResult UHotUpdatePatchPackageBuilder::BuildPatchPackage(co
 			for (int32 i = 0; i < AssetsToCook.Num(); i++)
 			{
 				const FString& AssetPath = AssetsToCook[i];
-				FString DiskPath = UHotUpdatePackageHelper::GetAssetDiskPath(AssetPath, CookedPlatformDir);
+				FString DiskPath = FHotUpdatePackageHelper::GetAssetDiskPath(AssetPath, CookedPlatformDir);
 				if (!DiskPath.IsEmpty() && FPaths::FileExists(*DiskPath))
 				{
 					// 优先使用源文件路径计算 Hash
-					FString SourcePath = UHotUpdatePackageHelper::GetAssetSourcePath(AssetPath);
+					FString SourcePath = FHotUpdatePackageHelper::GetAssetSourcePath(AssetPath);
 					FString HashPath = (!SourcePath.IsEmpty() && FPaths::FileExists(*SourcePath)) ? SourcePath : DiskPath;
 					CurrentAssetHashes.Add(AssetPath, UHotUpdateFileUtils::CalculateFileHash(HashPath));
 					CurrentAssetSizes.Add(AssetPath, IFileManager::Get().FileSize(*HashPath));
@@ -1143,14 +1143,14 @@ bool UHotUpdatePatchPackageBuilder::CollectAssets(
 		}
 		else
 		{
-			FString DiskPath = UHotUpdatePackageHelper::GetAssetDiskPath(AssetPath, CookedPlatformDir);
+			FString DiskPath = FHotUpdatePackageHelper::GetAssetDiskPath(AssetPath, CookedPlatformDir);
 			if (!DiskPath.IsEmpty() && FPaths::FileExists(*DiskPath))
 			{
 				OutAssetPaths.Add(AssetPath);
 				OutAssetDiskPaths.Add(AssetPath, DiskPath);
 
 				// 同时收集源文件路径（用于 Hash 计算）
-				FString SourcePath = UHotUpdatePackageHelper::GetAssetSourcePath(AssetPath);
+				FString SourcePath = FHotUpdatePackageHelper::GetAssetSourcePath(AssetPath);
 				if (!SourcePath.IsEmpty())
 				{
 					OutAssetSourcePaths.Add(AssetPath, SourcePath);
@@ -1235,7 +1235,7 @@ bool UHotUpdatePatchPackageBuilder::LoadBaseManifest(
 
 			// 将 filePath 从 manifest 格式（"Game/Path/File.ext"）归一化为 UE Long Package Name 格式（"/Game/Path/File"）
 			// 以便与 CollectAssets 产生的键格式匹配
-			FString NormalizedPath = UHotUpdatePackageHelper::FileNameToAssetPath(FilePath);
+			FString NormalizedPath = FHotUpdatePackageHelper::FileNameToAssetPath(FilePath);
 
 			OutAssetHashes.Add(NormalizedPath, Hash);
 			OutAssetSizes.Add(NormalizedPath, Size);
@@ -1568,7 +1568,7 @@ bool UHotUpdatePatchPackageBuilder::GenerateManifest(
 	for (const FString& AssetPath : AllAssetPaths)
 	{
 		TSharedPtr<FJsonObject> FileObj = MakeShareable(new FJsonObject);
-		FileObj->SetStringField(TEXT("filePath"), UHotUpdatePackageHelper::ConvertAssetPathToFileName(AssetPath, HotUpdateUtils::GetCookedPlatformDir(CurrentConfig.Platform)));
+		FileObj->SetStringField(TEXT("filePath"), FHotUpdatePackageHelper::ConvertAssetPathToFileName(AssetPath, HotUpdateUtils::GetCookedPlatformDir(CurrentConfig.Platform)));
 
 		// 检查文件来源（优先级：当前 patch > 之前 patch > 基础版本容器 > base manifest）
 		bool bIsCurrentPatch = ChangedAssetDiskPaths.Contains(AssetPath);
@@ -1582,7 +1582,7 @@ bool UHotUpdatePatchPackageBuilder::GenerateManifest(
 			if (DiskPath)
 			{
 					// 优先使用源文件计算 Hash
-					FString SourcePath = UHotUpdatePackageHelper::GetAssetSourcePath(AssetPath);
+					FString SourcePath = FHotUpdatePackageHelper::GetAssetSourcePath(AssetPath);
 					FString HashPath = (!SourcePath.IsEmpty() && FPaths::FileExists(*SourcePath)) ? SourcePath : *DiskPath;
 					int64 FileSize = IFileManager::Get().FileSize(*HashPath);
 					FileObj->SetNumberField(TEXT("fileSize"), FileSize);
@@ -1816,7 +1816,7 @@ bool UHotUpdatePatchPackageBuilder::LoadPreviousPatchManifest(
 				FString Hash = FileObj->GetStringField(TEXT("fileHash"));
 				int64 Size = (int64)FileObj->GetNumberField(TEXT("fileSize"));
 
-				FString NormalizedPath = UHotUpdatePackageHelper::FileNameToAssetPath(FilePath);
+				FString NormalizedPath = FHotUpdatePackageHelper::FileNameToAssetPath(FilePath);
 				OutPatchFilesHash.Add(NormalizedPath, Hash);
 				OutPatchFilesSize.Add(NormalizedPath, Size);
 			}
@@ -1973,7 +1973,7 @@ bool UHotUpdatePatchPackageBuilder::LoadBaseContainers(
 			FString Hash = FileObj->GetStringField(TEXT("fileHash"));
 			int64 Size = (int64)FileObj->GetNumberField(TEXT("fileSize"));
 
-			FString NormalizedPath = UHotUpdatePackageHelper::FileNameToAssetPath(FilePath);
+			FString NormalizedPath = FHotUpdatePackageHelper::FileNameToAssetPath(FilePath);
 
 			// 检查 source 字段，只添加 base 资源
 			FString Source = TEXT("base");

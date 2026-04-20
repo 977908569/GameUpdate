@@ -13,7 +13,7 @@
 #include "JsonObjectConverter.h"
 #include "Interfaces/IPluginManager.h"
 
-bool UHotUpdatePackageHelper::CompileProject(EHotUpdatePlatform Platform)
+bool FHotUpdatePackageHelper::CompileProject(EHotUpdatePlatform Platform)
 {
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("开始编译项目..."));
 
@@ -63,12 +63,12 @@ bool UHotUpdatePackageHelper::CompileProject(EHotUpdatePlatform Platform)
 	return true;
 }
 
-bool UHotUpdatePackageHelper::CookAssets(EHotUpdatePlatform Platform)
+bool FHotUpdatePackageHelper::CookAssets(EHotUpdatePlatform Platform)
 {
 	return CookAssets(Platform, TArray<FString>());
 }
 
-bool UHotUpdatePackageHelper::CookAssets(EHotUpdatePlatform Platform, const TArray<FString>& AssetsToCook)
+bool FHotUpdatePackageHelper::CookAssets(EHotUpdatePlatform Platform, const TArray<FString>& AssetsToCook)
 {
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("开始 Cook 资源..."));
 
@@ -158,7 +158,7 @@ bool UHotUpdatePackageHelper::CookAssets(EHotUpdatePlatform Platform, const TArr
 	return true;
 }
 
-FString UHotUpdatePackageHelper::GetAssetDiskPath(const FString& AssetPath, const FString& CookedPlatformDir)
+FString FHotUpdatePackageHelper::GetAssetDiskPath(const FString& AssetPath, const FString& CookedPlatformDir)
 {
 	if (CookedPlatformDir.IsEmpty())
 	{
@@ -299,7 +299,7 @@ FString UHotUpdatePackageHelper::GetAssetDiskPath(const FString& AssetPath, cons
 	return TEXT("");
 }
 
-FString UHotUpdatePackageHelper::GetAssetSourcePath(const FString& AssetPath)
+FString FHotUpdatePackageHelper::GetAssetSourcePath(const FString& AssetPath)
 {
 	FString ResolvedPath;
 	if (!FPackageName::TryConvertLongPackageNameToFilename(AssetPath, ResolvedPath, TEXT("")))
@@ -317,7 +317,7 @@ FString UHotUpdatePackageHelper::GetAssetSourcePath(const FString& AssetPath)
 	return TEXT("");
 }
 
-FString UHotUpdatePackageHelper::ConvertAssetPathToFileName(const FString& AssetPath, const FString& CookedPlatformDir)
+FString FHotUpdatePackageHelper::ConvertAssetPathToFileName(const FString& AssetPath, const FString& CookedPlatformDir)
 {
 	FString FileName = AssetPath;
 
@@ -347,7 +347,7 @@ FString UHotUpdatePackageHelper::ConvertAssetPathToFileName(const FString& Asset
 	return FileName;
 }
 
-FString UHotUpdatePackageHelper::FileNameToAssetPath(const FString& FileName)
+FString FHotUpdatePackageHelper::FileNameToAssetPath(const FString& FileName)
 {
 	FString AssetPath = FileName;
 

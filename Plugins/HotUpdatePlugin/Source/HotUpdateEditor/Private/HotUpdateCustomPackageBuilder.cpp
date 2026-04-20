@@ -127,7 +127,7 @@ FHotUpdateCustomPackageResult UHotUpdateCustomPackageBuilder::ExecuteBuild(const
 	if (!Config.bSkipBuild)
 	{
 		UpdateProgress(TEXT("编译项目"), TEXT(""), 0, 0);
-		if (!UHotUpdatePackageHelper::CompileProject(Config.Platform))
+		if (!FHotUpdatePackageHelper::CompileProject(Config.Platform))
 		{
 			Result.bSuccess = false;
 			Result.ErrorMessage = TEXT("项目编译失败");
@@ -144,7 +144,7 @@ FHotUpdateCustomPackageResult UHotUpdateCustomPackageBuilder::ExecuteBuild(const
 	if (!Config.bSkipCook && AssetPathsToCook.Num() > 0)
 	{
 		UpdateProgress(TEXT("增量 Cook 资源"), TEXT(""), 0, AssetPathsToCook.Num());
-		if (!UHotUpdatePackageHelper::CookAssets(Config.Platform, AssetPathsToCook))
+		if (!FHotUpdatePackageHelper::CookAssets(Config.Platform, AssetPathsToCook))
 		{
 			Result.bSuccess = false;
 			Result.ErrorMessage = TEXT("Cook 资源失败");
@@ -168,7 +168,7 @@ FHotUpdateCustomPackageResult UHotUpdateCustomPackageBuilder::ExecuteBuild(const
 
 		if (!PackageName.IsEmpty())
 		{
-			DiskPath = UHotUpdatePackageHelper::GetAssetDiskPath(PackageName, CookedPlatformDir);
+			DiskPath = FHotUpdatePackageHelper::GetAssetDiskPath(PackageName, CookedPlatformDir);
 		}
 
 		// 如果 Cook 后路径不存在，尝试使用用户提供的路径
@@ -186,7 +186,7 @@ FHotUpdateCustomPackageResult UHotUpdateCustomPackageBuilder::ExecuteBuild(const
 			ValidAssetPaths.Add(Key);
 			AssetDiskPaths.Add(Key, DiskPath);
 
-			FString SourcePath = UHotUpdatePackageHelper::GetAssetSourcePath(Key);
+			FString SourcePath = FHotUpdatePackageHelper::GetAssetSourcePath(Key);
 			if (!SourcePath.IsEmpty())
 			{
 				AssetSourcePaths.Add(Key, SourcePath);

@@ -4,17 +4,13 @@
 
 #include "CoreMinimal.h"
 #include "HotUpdateEditorTypes.h"
-#include "HotUpdatePackageHelper.generated.h"
 
 /**
  * 打包工具类（静态，无状态）
  * 提供编译、Cook、路径解析等共享逻辑，供多个 Builder 组合使用
  */
-UCLASS()
-class HOTUPDATEEDITOR_API UHotUpdatePackageHelper : public UObject
+class HOTUPDATEEDITOR_API FHotUpdatePackageHelper
 {
-	GENERATED_BODY()
-
 public:
 	/** 编译项目 */
 	static bool CompileProject(EHotUpdatePlatform Platform);
@@ -36,5 +32,4 @@ public:
 
 	/** 文件名 -> 资源路径（UE Long Package Name 格式） */
 	static FString FileNameToAssetPath(const FString& FileName);
-
-	};
+};

@@ -182,6 +182,20 @@ TSharedRef<SWidget> SHotUpdateCustomPackagingPanel::CreateBasicSettings()
 	};
 
 	return SNew(SVerticalBox)
+		// Pak优先级
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		[
+			MakeSettingRow(
+				LOCTEXT("PakPriorityLabel", "Pak优先级:"),
+				SAssignNew(PakPrioritySpinBox, SSpinBox<float>)
+				.Value(10)
+				.MinValue(0)
+				.MaxValue(9999)
+				.Delta(1)
+				.ToolTipText(LOCTEXT("PakPriorityTooltip", "数字越大优先级越高，默认10"))
+			)
+		]
 		// 目标平台
 		+ SVerticalBox::Slot()
 		.AutoHeight()
@@ -366,33 +380,6 @@ TSharedRef<SWidget> SHotUpdateCustomPackagingPanel::CreateBasicSettings()
 					SNew(STextBlock)
 					.Text(LOCTEXT("SkipBuild", "跳过编译"))
 					.Font(FHotUpdateEditorStyle::GetNormalFont())
-				]
-			]
-		+ SWrapBox::Slot()
-			.Padding(0, 2, 12, 2)
-			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
-				.Padding(4, 2)
-				[
-					SNew(STextBlock)
-					.Text(LOCTEXT("PakPriorityLabel", "Pak优先级:"))
-					.ToolTipText(LOCTEXT("PakPriorityTooltip", "数字越大优先级越高，默认10"))
-					.Font(FHotUpdateEditorStyle::GetNormalFont())
-				]
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
-				.Padding(4, 2)
-				[
-					SAssignNew(PakPrioritySpinBox, SSpinBox<float>)
-					.Value(10)
-					.MinValue(0)
-					.MaxValue(9999)
-					.Delta(1)
-					.ToolTipText(LOCTEXT("PakPriorityTooltip", "数字越大优先级越高，默认10"))
 				]
 			]
 		];

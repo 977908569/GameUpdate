@@ -61,11 +61,11 @@ public:
 
 	/** 委托给 Helper */
 	static FString ConvertAssetPathToFileName(const FString& AssetPath, const FString& CookedPlatformDir)
-	{ return UHotUpdatePackageHelper::ConvertAssetPathToFileName(AssetPath, CookedPlatformDir); }
+	{ return FHotUpdatePackageHelper::ConvertAssetPathToFileName(AssetPath, CookedPlatformDir); }
 
 	/** 委托给 Helper */
 	static FString FileNameToAssetPath(const FString& FileName)
-	{ return UHotUpdatePackageHelper::FileNameToAssetPath(FileName); }
+	{ return FHotUpdatePackageHelper::FileNameToAssetPath(FileName); }
 
 private:
 	/** 收集资源 */
