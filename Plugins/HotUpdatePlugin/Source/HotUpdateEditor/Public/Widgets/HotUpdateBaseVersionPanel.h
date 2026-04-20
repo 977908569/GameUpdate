@@ -83,6 +83,11 @@ private:
 	void OnDependencyStrategySelected(TSharedPtr<EHotUpdateDependencyStrategy> InItem, ESelectInfo::Type SelectInfo);
 	FText GetSelectedDependencyStrategyText() const;
 
+	/** 分包策略相关方法 */
+	TSharedRef<SWidget> GeneratePatchChunkStrategyComboBoxItem(TSharedPtr<EHotUpdateChunkStrategy> InItem);
+	void OnPatchChunkStrategySelected(TSharedPtr<EHotUpdateChunkStrategy> InItem, ESelectInfo::Type SelectInfo);
+	FText GetSelectedPatchChunkStrategyText() const;
+
 private:
 	/** 父窗口 */
 	TSharedPtr<SWindow> ParentWindow;
@@ -136,4 +141,13 @@ private:
 
 	/** 必须包含的目录列表项 */
 	TArray<TSharedPtr<FDirectoryPath>> WhitelistDirectoryItems;
+
+	/** 分包策略下拉框 */
+	TSharedPtr<SComboBox<TSharedPtr<EHotUpdateChunkStrategy>>> PatchChunkStrategyComboBox;
+
+	/** 分包策略选项列表 */
+	TArray<TSharedPtr<EHotUpdateChunkStrategy>> PatchChunkStrategyOptions;
+
+	/** 当前选择的分包策略 */
+	TSharedPtr<EHotUpdateChunkStrategy> SelectedPatchChunkStrategy;
 };

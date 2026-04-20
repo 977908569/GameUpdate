@@ -39,6 +39,7 @@ bool UHotUpdateAssetManager::GetPackageChunkIds(
 	static TArray<FString> CachedWhitelistDirs;
 	static TSet<FString> CachedChunk0Packages;  // Expanded set: whitelist dirs + dependencies
 	static FDateTime CachedFileTimestamp = FDateTime(0);
+	static TMap<FString, int32> CachedChunkMapping;
 
 	FString ConfigFile = GetMinimalPackageConfigFilePath();
 
@@ -58,6 +59,7 @@ bool UHotUpdateAssetManager::GetPackageChunkIds(
 		// Config file doesn't exist, use engine defaults
 		CachedWhitelistDirs.Empty();
 		CachedChunk0Packages.Empty();
+		CachedChunkMapping.Empty();
 		bMinimalPackageEnabled = false;
 		CachedFileTimestamp = FDateTime(0);
 		return bHasChunkIds;
@@ -78,6 +80,7 @@ bool UHotUpdateAssetManager::GetPackageChunkIds(
 				bMinimalPackageEnabled = JsonObj->GetBoolField(TEXT("bEnableMinimalPackage"));
 				CachedWhitelistDirs.Empty();
 				CachedChunk0Packages.Empty();
+				CachedChunkMapping.Empty();
 
 				// Read whitelist directories
 				const TArray<TSharedPtr<FJsonValue>>* WhitelistArray;
@@ -92,6 +95,18 @@ bool UHotUpdateAssetManager::GetPackageChunkIds(
 						}
 						CachedWhitelistDirs.Add(Dir);
 					}
+				}
+
+				// Read ChunkMapping (pre-computed by Editor process)
+				CachedChunkMapping.Empty();
+				const TSharedPtr<FJsonObject>* MappingObj;
+				if (JsonObj->TryGetObjectField(TEXT("ChunkMapping"), MappingObj))
+				{
+					for (const auto& Pair : (*MappingObj)->Values)
+					{
+						CachedChunkMapping.Add(Pair.Key, (int32)Pair.Value->AsNumber());
+					}
+					UE_LOG(LogHotUpdate, Log, TEXT("GetPackageChunkIds: Loaded %d ChunkMapping entries"), CachedChunkMapping.Num());
 				}
 
 				// Pre-compute all dependencies of whitelist packages
@@ -167,7 +182,16 @@ bool UHotUpdateAssetManager::GetPackageChunkIds(
 			return true;
 		}
 
-		// Non-whitelist packages: assign to Chunk 11 (hot update patch)
+		// Non-whitelist packages: lookup ChunkMapping for actual Chunk ID
+		const int32* MappedChunkId = CachedChunkMapping.Find(PackageStr);
+		if (MappedChunkId)
+		{
+			OutChunkList.Empty();
+			OutChunkList.Add(*MappedChunkId);
+			return true;
+		}
+
+		// Fallback: no mapping found, assign to Chunk 11 (hot update patch)
 		OutChunkList.Empty();
 		OutChunkList.Add(11);
 		return true;

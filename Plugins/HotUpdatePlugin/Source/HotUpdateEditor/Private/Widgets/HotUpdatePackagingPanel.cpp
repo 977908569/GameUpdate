@@ -59,10 +59,9 @@ void SHotUpdatePackagingPanel::Construct(const FArguments& InArgs)
 	ChunkStrategyOptions.Add(MakeShareable(new EHotUpdateChunkStrategy(EHotUpdateChunkStrategy::None)));
 	ChunkStrategyOptions.Add(MakeShareable(new EHotUpdateChunkStrategy(EHotUpdateChunkStrategy::Size)));
 	ChunkStrategyOptions.Add(MakeShareable(new EHotUpdateChunkStrategy(EHotUpdateChunkStrategy::Directory)));
-	ChunkStrategyOptions.Add(MakeShareable(new EHotUpdateChunkStrategy(EHotUpdateChunkStrategy::AssetType)));
 	ChunkStrategyOptions.Add(MakeShareable(new EHotUpdateChunkStrategy(EHotUpdateChunkStrategy::PrimaryAsset)));
 	ChunkStrategyOptions.Add(MakeShareable(new EHotUpdateChunkStrategy(EHotUpdateChunkStrategy::Hybrid)));
-	SelectedChunkStrategy = ChunkStrategyOptions[4]; // 默认 PrimaryAsset
+	SelectedChunkStrategy = ChunkStrategyOptions[3]; // 默认 PrimaryAsset
 
 	// 初始化版本选择选项
 	RefreshVersionSelectOptions();
@@ -952,9 +951,6 @@ TSharedRef<SWidget> SHotUpdatePackagingPanel::GenerateChunkStrategyComboBoxItem(
 	case EHotUpdateChunkStrategy::Directory:
 		StrategyText = LOCTEXT("StrategyDirectory", "按目录分包");
 		break;
-	case EHotUpdateChunkStrategy::AssetType:
-		StrategyText = LOCTEXT("StrategyAssetType", "按类型分包");
-		break;
 	case EHotUpdateChunkStrategy::PrimaryAsset:
 		StrategyText = LOCTEXT("StrategyPrimaryAsset", "UE5标准分包");
 		break;
@@ -989,8 +985,6 @@ FText SHotUpdatePackagingPanel::GetSelectedChunkStrategyText() const
 			return LOCTEXT("StrategySize", "按大小分包");
 		case EHotUpdateChunkStrategy::Directory:
 			return LOCTEXT("StrategyDirectory", "按目录分包");
-		case EHotUpdateChunkStrategy::AssetType:
-			return LOCTEXT("StrategyAssetType", "按类型分包");
 		case EHotUpdateChunkStrategy::PrimaryAsset:
 			return LOCTEXT("StrategyPrimaryAsset", "UE5标准分包");
 		case EHotUpdateChunkStrategy::Hybrid:

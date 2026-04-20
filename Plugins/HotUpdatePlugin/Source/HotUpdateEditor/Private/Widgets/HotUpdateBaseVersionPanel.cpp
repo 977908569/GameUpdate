@@ -56,6 +56,14 @@ void SHotUpdateBaseVersionPanel::Construct(const FArguments& InArgs)
 	DependencyStrategyOptions.Add(MakeShareable(new EHotUpdateDependencyStrategy(EHotUpdateDependencyStrategy::None)));
 	SelectedDependencyStrategy = DependencyStrategyOptions[1];
 
+	// 分包策略选项初始化
+	PatchChunkStrategyOptions.Add(MakeShareable(new EHotUpdateChunkStrategy(EHotUpdateChunkStrategy::None)));
+	PatchChunkStrategyOptions.Add(MakeShareable(new EHotUpdateChunkStrategy(EHotUpdateChunkStrategy::Size)));
+	PatchChunkStrategyOptions.Add(MakeShareable(new EHotUpdateChunkStrategy(EHotUpdateChunkStrategy::Directory)));
+	PatchChunkStrategyOptions.Add(MakeShareable(new EHotUpdateChunkStrategy(EHotUpdateChunkStrategy::PrimaryAsset)));
+	PatchChunkStrategyOptions.Add(MakeShareable(new EHotUpdateChunkStrategy(EHotUpdateChunkStrategy::Hybrid)));
+	SelectedPatchChunkStrategy = PatchChunkStrategyOptions[0];
+
 	// 创建构建器
 	Builder = NewObject<UHotUpdateBaseVersionBuilder>();
 	Builder->OnBuildProgress.AddSP(this, &SHotUpdateBaseVersionPanel::OnBuildProgress);
@@ -689,6 +697,37 @@ TSharedRef<SWidget> SHotUpdateBaseVersionPanel::CreateMinimalPackageSettings()
 					]
 				]
 			]
+			// 分包策略
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(0, 2)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(SBox)
+					.WidthOverride(90)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("PatchChunkStrategyLabel", "分包策略:"))
+					]
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				.Padding(8, 0)
+				[
+					SAssignNew(PatchChunkStrategyComboBox, SComboBox<TSharedPtr<EHotUpdateChunkStrategy>>)
+					.OptionsSource(&PatchChunkStrategyOptions)
+					.OnGenerateWidget(this, &SHotUpdateBaseVersionPanel::GeneratePatchChunkStrategyComboBoxItem)
+					.OnSelectionChanged(this, &SHotUpdateBaseVersionPanel::OnPatchChunkStrategySelected)
+					[
+						SNew(STextBlock)
+						.Text(this, &SHotUpdateBaseVersionPanel::GetSelectedPatchChunkStrategyText)
+					]
+				]
+			]
 			// 必须包含的目录
 			+ SVerticalBox::Slot()
 			.AutoHeight()
@@ -837,6 +876,64 @@ FText SHotUpdateBaseVersionPanel::GetSelectedDependencyStrategyText() const
 		}
 	}
 	return LOCTEXT("DependencyHardOnly", "仅硬依赖");
+}
+
+TSharedRef<SWidget> SHotUpdateBaseVersionPanel::GeneratePatchChunkStrategyComboBoxItem(TSharedPtr<EHotUpdateChunkStrategy> InItem)
+{
+	FText StrategyText;
+	switch (*InItem)
+	{
+	case EHotUpdateChunkStrategy::None:
+		StrategyText = LOCTEXT("ChunkStrategyNone", "不分包（全部一个Chunk）");
+		break;
+	case EHotUpdateChunkStrategy::Size:
+		StrategyText = LOCTEXT("ChunkStrategySize", "按大小分包");
+		break;
+	case EHotUpdateChunkStrategy::Directory:
+		StrategyText = LOCTEXT("ChunkStrategyDirectory", "按目录分包");
+		break;
+		break;
+	case EHotUpdateChunkStrategy::PrimaryAsset:
+		StrategyText = LOCTEXT("ChunkStrategyPrimaryAsset", "UE5标准分包");
+		break;
+	case EHotUpdateChunkStrategy::Hybrid:
+		StrategyText = LOCTEXT("ChunkStrategyHybrid", "混合模式");
+		break;
+	}
+	return SNew(STextBlock)
+		.Text(StrategyText)
+		.Font(FHotUpdateEditorStyle::GetNormalFont())
+		.Margin(FMargin(4, 2));
+}
+
+void SHotUpdateBaseVersionPanel::OnPatchChunkStrategySelected(TSharedPtr<EHotUpdateChunkStrategy> InItem, ESelectInfo::Type SelectInfo)
+{
+	SelectedPatchChunkStrategy = InItem;
+	if (InItem.IsValid())
+	{
+		BuildConfig.MinimalPackageConfig.PatchChunkStrategy = *InItem;
+	}
+}
+
+FText SHotUpdateBaseVersionPanel::GetSelectedPatchChunkStrategyText() const
+{
+	if (SelectedPatchChunkStrategy.IsValid())
+	{
+		switch (*SelectedPatchChunkStrategy)
+		{
+		case EHotUpdateChunkStrategy::None:
+			return LOCTEXT("ChunkStrategyNone", "不分包（全部一个Chunk）");
+		case EHotUpdateChunkStrategy::Size:
+			return LOCTEXT("ChunkStrategySize", "按大小分包");
+		case EHotUpdateChunkStrategy::Directory:
+			return LOCTEXT("ChunkStrategyDirectory", "按目录分包");
+		case EHotUpdateChunkStrategy::PrimaryAsset:
+			return LOCTEXT("ChunkStrategyPrimaryAsset", "UE5标准分包");
+		case EHotUpdateChunkStrategy::Hybrid:
+			return LOCTEXT("ChunkStrategyHybrid", "混合模式");
+		}
+	}
+	return LOCTEXT("ChunkStrategyNone", "不分包（全部一个Chunk）");
 }
 
 TSharedRef<SWidget> SHotUpdateBaseVersionPanel::GenerateAndroidTextureFormatComboBoxItem(TSharedPtr<EHotUpdateAndroidTextureFormat> InItem)

@@ -11,62 +11,6 @@
 class IAssetRegistry;
 
 /**
- * Chunk 分析配置（扩展版）
- */
-USTRUCT(BlueprintType)
-struct HOTUPDATEEDITOR_API FHotUpdateChunkAnalysisConfig
-{
-	GENERATED_BODY()
-
-	/// 分包策略
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
-	EHotUpdateChunkStrategy ChunkStrategy;
-
-	/// 最大 Chunk 大小（MB），0 表示无限制（用于 Size 策略）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk", meta = (ClampMin = "0"))
-	int32 MaxChunkSizeMB;
-
-	/// 按大小分包的详细配置
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk|Size")
-	FHotUpdateSizeBasedChunkConfig SizeBasedConfig;
-
-	/// 目录分包规则列表（用于 Directory 和 Hybrid 策略）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk|Directory")
-	TArray<FHotUpdateDirectoryChunkRule> DirectoryChunkRules;
-
-	/// 是否分析依赖关系
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
-	bool bAnalyzeDependencies;
-
-	/// 基础包 Chunk ID 起始值
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
-	int32 BaseChunkIdStart;
-
-	/// 更新包 Chunk ID 起始值
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
-	int32 PatchChunkIdStart;
-
-	/// 未匹配任何规则的资源的默认 Chunk 名称
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
-	FString DefaultChunkName;
-
-	/// 未匹配任何规则的资源的默认 Chunk ID（-1 表示自动分配）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
-	int32 DefaultChunkId;
-
-	FHotUpdateChunkAnalysisConfig()
-		: ChunkStrategy(EHotUpdateChunkStrategy::PrimaryAsset)
-		, MaxChunkSizeMB(256)
-		, bAnalyzeDependencies(true)
-		, BaseChunkIdStart(0)
-		, PatchChunkIdStart(10000)
-		, DefaultChunkName(TEXT("Default"))
-		, DefaultChunkId(-1)
-	{
-	}
-};
-
-/**
  * Chunk 分析结果
  */
 USTRUCT(BlueprintType)
@@ -148,35 +92,11 @@ public:
 		const TMap<FString, FString>& AssetDiskPaths,
 		const FHotUpdateChunkAnalysisConfig& Config);
 
-	/**
-	 * 获取资源类型
-	 */
-	static FString GetAssetType(const FString& AssetPath, IAssetRegistry* AssetRegistry);
-
-	/**
-	 * 获取资源类型的默认 Chunk ID
-	 */
-	static int32 GetDefaultChunkIdForAssetType(const FString& AssetType);
-
-	/**
-	 * 获取所有资源类型的默认 Chunk ID 映射
-	 */
-	static TMap<FString, int32> GetDefaultAssetTypeChunkMap();
-
 private:
 	/**
 	 * 按 Primary Asset 划分（UE5 标准）
 	 */
 	bool DivideByPrimaryAsset(
-		const TArray<FString>& AssetPaths,
-		IAssetRegistry* AssetRegistry,
-		TArray<FHotUpdateChunkDefinition>& OutChunks,
-		TMap<FString, int32>& OutAssetToChunk);
-
-	/**
-	 * 按资源类型划分
-	 */
-	bool DivideByAssetType(
 		const TArray<FString>& AssetPaths,
 		IAssetRegistry* AssetRegistry,
 		TArray<FHotUpdateChunkDefinition>& OutChunks,

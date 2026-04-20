@@ -8,6 +8,7 @@
 #include "HotUpdatePackagingSettingsHelper.h"
 #include "HotUpdateUtils.h"
 #include "HotUpdateAssetFilter.h"
+#include "HotUpdateChunkManager.h"
 #include "Core/HotUpdateSettings.h"
 #include "HAL/PlatformProcess.h"
 #include "HAL/PlatformFileManager.h"
@@ -177,6 +178,10 @@ void UHotUpdateBaseVersionBuilder::CancelBuild()
 
 void UHotUpdateBaseVersionBuilder::ExecuteBuildInternal(bool bSynchronous)
 {
+	// 清空上次构建的缓存
+	CachedChunkMapping.Empty();
+	CachedChunkDefinitions.Empty();
+
 	FHotUpdateBaseVersionBuildResult Result;
 	Result.VersionString = CurrentConfig.VersionString;
 	Result.Platform = CurrentConfig.Platform;
@@ -201,6 +206,9 @@ void UHotUpdateBaseVersionBuilder::ExecuteBuildInternal(bool bSynchronous)
 	// 2. 写入最小包配置
 	if (CurrentConfig.MinimalPackageConfig.bEnableMinimalPackage)
 	{
+		// 预计算非白名单资源的 Chunk 分配
+		PreComputeChunkMapping();
+		// 写入完整配置（包含 ChunkMapping）
 		WriteMinimalPackageConfig();
 	}
 	else
@@ -500,6 +508,20 @@ void UHotUpdateBaseVersionBuilder::WriteMinimalPackageConfig()
 	}
 	JsonObj->SetArrayField(TEXT("WhitelistDirectories"), WhitelistArray);
 
+	// 写入分包策略名称
+	JsonObj->SetStringField(TEXT("ChunkStrategy"), UEnum::GetValueAsString(CurrentConfig.MinimalPackageConfig.PatchChunkStrategy));
+
+	// 写入预计算的 ChunkMapping（如果已预计算）
+	if (CachedChunkMapping.Num() > 0)
+	{
+		TSharedPtr<FJsonObject> MappingObj = MakeShareable(new FJsonObject);
+		for (const TPair<FString, int32>& Pair : CachedChunkMapping)
+		{
+			MappingObj->SetNumberField(Pair.Key, Pair.Value);
+		}
+		JsonObj->SetObjectField(TEXT("ChunkMapping"), MappingObj);
+	}
+
 	FString JsonStr;
 	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonStr);
 	FJsonSerializer::Serialize(JsonObj.ToSharedRef(), Writer);
@@ -514,6 +536,91 @@ void UHotUpdateBaseVersionBuilder::WriteMinimalPackageConfig()
 		UE_LOG(LogHotUpdateEditor, Error, TEXT("Failed to write minimal package config to: %s"), *ConfigFile);
 	}
 }
+
+void UHotUpdateBaseVersionBuilder::PreComputeChunkMapping()
+{
+	if (!CurrentConfig.MinimalPackageConfig.bEnableMinimalPackage)
+		return;
+
+	// 如果策略为 None，保持当前行为（全部 -> Chunk 11）
+	if (CurrentConfig.MinimalPackageConfig.PatchChunkStrategy == EHotUpdateChunkStrategy::None)
+	{
+		CachedChunkMapping.Empty();
+		CachedChunkDefinitions.Empty();
+		UE_LOG(LogHotUpdateEditor, Log, TEXT("分包策略为 None，保持原有行为（非白名单资源全部分配到 Chunk 11）"));
+		return;
+	}
+
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("开始预计算 Chunk 分配，策略: %s"),
+		*UEnum::GetValueAsString(CurrentConfig.MinimalPackageConfig.PatchChunkStrategy));
+
+	// 1. 获取 AssetRegistry
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+	IAssetRegistry* AssetRegistry = &AssetRegistryModule.Get();
+
+	// 2. 收集所有资产路径
+	TArray<FString> AllAssetPaths = CollectAllAssetPaths(AssetRegistry);
+
+	// 3. 应用最小包过滤（得到白名单和热更资产）
+	TArray<FString> PatchAssetPaths;
+	ApplyMinimalPackageFilter(AllAssetPaths, PatchAssetPaths, AssetRegistry);
+
+	if (PatchAssetPaths.Num() == 0)
+	{
+		UE_LOG(LogHotUpdateEditor, Warning, TEXT("没有热更资产，跳过 Chunk 预计算"));
+		return;
+	}
+
+	// 4. 收集热更资产的磁盘路径映射（用于按大小分包等策略）
+	TMap<FString, FString> AssetDiskPaths;
+	for (const FString& AssetPath : PatchAssetPaths)
+	{
+		FString SourcePath = FHotUpdatePackageHelper::GetAssetSourcePath(AssetPath);
+		if (!SourcePath.IsEmpty() && FPaths::FileExists(*SourcePath))
+		{
+			AssetDiskPaths.Add(AssetPath, SourcePath);
+		}
+	}
+
+	// 5. 配置 ChunkAnalysisConfig
+	FHotUpdateChunkAnalysisConfig ChunkConfig = CurrentConfig.MinimalPackageConfig.PatchChunkConfig;
+	ChunkConfig.ChunkStrategy = CurrentConfig.MinimalPackageConfig.PatchChunkStrategy;
+	ChunkConfig.BaseChunkIdStart = 1;   // 非白名单资源从 Chunk 1 开始
+	ChunkConfig.PatchChunkIdStart = 1;
+	if (ChunkConfig.DefaultChunkId < 0)
+	{
+		ChunkConfig.DefaultChunkId = 11;  // 未匹配的资源默认分配到 Chunk 11
+	}
+
+	// 6. 使用 UHotUpdateChunkManager 执行分包分析
+	UHotUpdateChunkManager* ChunkManager = NewObject<UHotUpdateChunkManager>();
+	FHotUpdateChunkAnalysisResult Result = ChunkManager->AnalyzeAndCreateChunks(
+		PatchAssetPaths, AssetDiskPaths, ChunkConfig);
+
+	if (Result.bSuccess)
+	{
+		CachedChunkMapping = MoveTemp(Result.AssetToChunkMap);
+		CachedChunkDefinitions = MoveTemp(Result.Chunks);
+
+		UE_LOG(LogHotUpdateEditor, Log,
+			TEXT("Chunk 分包预计算完成: 策略=%s, %d 个资产分为 %d 个 Chunk"),
+			*UEnum::GetValueAsString(CurrentConfig.MinimalPackageConfig.PatchChunkStrategy),
+			PatchAssetPaths.Num(), CachedChunkDefinitions.Num());
+
+		for (const FHotUpdateChunkDefinition& Chunk : CachedChunkDefinitions)
+		{
+			UE_LOG(LogHotUpdateEditor, Log, TEXT("  Chunk %d (%s): %d 个资产"),
+				Chunk.ChunkId, *Chunk.ChunkName, Chunk.AssetPaths.Num());
+		}
+	}
+	else
+	{
+		UE_LOG(LogHotUpdateEditor, Error, TEXT("Chunk 分包预计算失败: %s"), *Result.ErrorMessage);
+		CachedChunkMapping.Empty();
+		CachedChunkDefinitions.Empty();
+	}
+}
+
 bool UHotUpdateBaseVersionBuilder::ExecuteUATPackage(const FString& UATCommand, FString& OutError)
 {
 	// 解析命令行
@@ -1067,8 +1174,29 @@ bool UHotUpdateBaseVersionBuilder::BuildFileManifestJson(
 
 	// 基础资源 -> chunk0 base
 	AddFileEntries(BaseAssets, 0, TEXT("base"));
-	// 热更资源 -> chunk11 patch
-	AddFileEntries(PatchAssets, 11, TEXT("patch"));
+	// 热更资源 -> 按 CachedChunkMapping 分配实际 ChunkId
+	for (const FHotUpdateResolvedAssetInfo& Info : PatchAssets)
+	{
+		int32 ChunkId = 11;
+		if (const int32* Found = CachedChunkMapping.Find(Info.AssetPath))
+		{
+			ChunkId = *Found;
+		}
+
+		TSharedPtr<FJsonObject> FileObj = MakeShareable(new FJsonObject);
+		FileObj->SetStringField(TEXT("filePath"), Info.FileName);
+
+		FString HashPath = Info.GetHashPath();
+		FileObj->SetNumberField(TEXT("fileSize"), IFileManager::Get().FileSize(*HashPath));
+		FileObj->SetStringField(TEXT("fileHash"), UHotUpdateFileUtils::CalculateFileHash(HashPath));
+
+		FileObj->SetNumberField(TEXT("chunkId"), ChunkId);
+		FileObj->SetNumberField(TEXT("priority"), 0);
+		FileObj->SetBoolField(TEXT("isCompressed"), true);
+		FileObj->SetStringField(TEXT("source"), TEXT("patch"));
+
+		FilesArray.Add(MakeShareable(new FJsonValueObject(FileObj)));
+	}
 
 	FileManifestObj->SetArrayField(TEXT("files"), FilesArray);
 

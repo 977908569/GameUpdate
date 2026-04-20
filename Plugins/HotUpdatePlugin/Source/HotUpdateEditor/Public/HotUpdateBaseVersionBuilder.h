@@ -247,6 +247,11 @@ private:
 		IAssetRegistry* AssetRegistry) const;
 
 	/**
+	 * 预计算非白名单资源的 Chunk 分配，用 ChunkManager 按策略分包
+	 */
+	void PreComputeChunkMapping();
+
+	/**
 	 * 解析资源磁盘路径并构建解析信息（消除 ConvertAssetPathToFileName 的冗余 GetAssetDiskPath 调用）
 	 */
 	TArray<FHotUpdateResolvedAssetInfo> ResolveAssetInfo(
@@ -285,4 +290,10 @@ private:
 
 	/// 构建任务
 	TFuture<void> BuildTask;
+
+	/// 缓存的 Chunk 映射（PackageName -> ChunkId），由 PreComputeChunkMapping 填充
+	TMap<FString, int32> CachedChunkMapping;
+
+	/// 缓存的 Chunk 定义列表，由 PreComputeChunkMapping 填充
+	TArray<FHotUpdateChunkDefinition> CachedChunkDefinitions;
 };

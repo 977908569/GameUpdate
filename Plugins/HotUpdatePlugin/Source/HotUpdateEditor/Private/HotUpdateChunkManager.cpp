@@ -69,12 +69,6 @@ FHotUpdateChunkAnalysisResult UHotUpdateChunkManager::AnalyzeAndCreateChunks(
 		}
 		break;
 
-	case EHotUpdateChunkStrategy::AssetType:
-		{
-			// 按资源类型分包
-			DivideByAssetType(AssetPaths, AssetRegistry, Chunks, AssetToChunk);
-		}
-		break;
 
 	case EHotUpdateChunkStrategy::PrimaryAsset:
 		{
@@ -82,8 +76,9 @@ FHotUpdateChunkAnalysisResult UHotUpdateChunkManager::AnalyzeAndCreateChunks(
 			bool bSuccess = DivideByPrimaryAsset(AssetPaths, AssetRegistry, Chunks, AssetToChunk);
 			if (!bSuccess || Chunks.Num() == 0)
 			{
-				UE_LOG(LogHotUpdateEditor, Log, TEXT("PrimaryAsset 划分失败，回退到按类型划分"));
-				DivideByAssetType(AssetPaths, AssetRegistry, Chunks, AssetToChunk);
+				UE_LOG(LogHotUpdateEditor, Log, TEXT("PrimaryAsset 划分失败，回退到单 Chunk"));
+				int32 DefaultId = Config.DefaultChunkId >= 0 ? Config.DefaultChunkId : AllocateNextChunkId();
+				CreateSingleChunk(AssetPaths, AssetDiskPaths, TEXT("DefaultChunk"), DefaultId, Chunks, AssetToChunk);
 			}
 
 			// 如果配置了最大 Chunk 大小，进一步细分
@@ -142,7 +137,8 @@ FHotUpdateChunkAnalysisResult UHotUpdateChunkManager::AnalyzeAndCreateChunks(
 			bool bSuccess = DivideByPrimaryAsset(AssetPaths, AssetRegistry, Chunks, AssetToChunk);
 			if (!bSuccess || Chunks.Num() == 0)
 			{
-				DivideByAssetType(AssetPaths, AssetRegistry, Chunks, AssetToChunk);
+				int32 DefaultId = Config.DefaultChunkId >= 0 ? Config.DefaultChunkId : AllocateNextChunkId();
+			CreateSingleChunk(AssetPaths, AssetDiskPaths, TEXT("DefaultChunk"), DefaultId, Chunks, AssetToChunk);
 			}
 		}
 		break;
@@ -196,46 +192,30 @@ FHotUpdateChunkAnalysisResult UHotUpdateChunkManager::CreatePatchChunks(
 		return Result;
 	}
 
-	// 获取 AssetRegistry
-	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
-	IAssetRegistry* AssetRegistry = &AssetRegistryModule.Get();
-
-	// 创建单个 Patch Chunk 或按类型划分
+	// 创建单个 Patch Chunk
 	TArray<FHotUpdateChunkDefinition> Chunks;
 	TMap<FString, int32> AssetToChunk;
 
 	// 使用 Patch Chunk ID 起始值
 	int32 PatchChunkId = Config.PatchChunkIdStart;
 
-	// 按 AssetType 分组
-	TMap<FString, TArray<FString>> AssetsByType;
+	FHotUpdateChunkDefinition Chunk;
+	Chunk.ChunkId = AllocateNextChunkId() + PatchChunkId;
+	Chunk.ChunkName = TEXT("Patch");
+	Chunk.Priority = 100;
+	Chunk.AssetPaths = ChangedAssets;
+
+	int64 ChunkSize = 0;
 	for (const FString& AssetPath : ChangedAssets)
 	{
-		FString AssetType = GetAssetType(AssetPath, AssetRegistry);
-		AssetsByType.FindOrAdd(AssetType).Add(AssetPath);
+		AssetToChunk.Add(AssetPath, Chunk.ChunkId);
+		ChunkSize += GetAssetSize(AssetPath, AssetDiskPaths);
 	}
 
-	// 为每种类型创建 Chunk
-	for (const auto& Pair : AssetsByType)
-	{
-		FHotUpdateChunkDefinition Chunk;
-		Chunk.ChunkId = AllocateNextChunkId() + PatchChunkId;
-		Chunk.ChunkName = FString::Printf(TEXT("Patch_%s"), *Pair.Key);
-		Chunk.Priority = 100; // Patch Chunk 优先级较高
-		Chunk.AssetPaths = Pair.Value;
+	Chunk.UncompressedSize = ChunkSize;
+	Chunk.CompressedSize = ChunkSize; // 简化处理
 
-		int64 ChunkSize = 0;
-		for (const FString& AssetPath : Pair.Value)
-		{
-			AssetToChunk.Add(AssetPath, Chunk.ChunkId);
-			ChunkSize += GetAssetSize(AssetPath, AssetDiskPaths);
-		}
-
-		Chunk.UncompressedSize = ChunkSize;
-		Chunk.CompressedSize = ChunkSize; // 简化处理
-
-		Chunks.Add(Chunk);
-	}
+	Chunks.Add(Chunk);
 
 	// 计算统计信息
 	int64 TotalSize = 0;
@@ -252,64 +232,6 @@ FHotUpdateChunkAnalysisResult UHotUpdateChunkManager::CreatePatchChunks(
 	Result.bSuccess = true;
 
 	return Result;
-}
-
-FString UHotUpdateChunkManager::GetAssetType(const FString& AssetPath, IAssetRegistry* AssetRegistry)
-{
-	if (!AssetRegistry)
-	{
-		return TEXT("Unknown");
-	}
-
-	FAssetData AssetData = AssetRegistry->GetAssetByObjectPath(FSoftObjectPath(AssetPath));
-	if (AssetData.IsValid())
-	{
-		return AssetData.AssetClassPath.ToString();
-	}
-
-	// 从路径推断类型
-	FString Extension = FPaths::GetExtension(AssetPath);
-	if (Extension == TEXT("uasset"))
-	{
-		return TEXT("Asset");
-	}
-	else if (Extension == TEXT("umap"))
-	{
-		return TEXT("Level");
-	}
-
-	return TEXT("Unknown");
-}
-
-int32 UHotUpdateChunkManager::GetDefaultChunkIdForAssetType(const FString& AssetType)
-{
-	static TMap<FString, int32> DefaultMap = GetDefaultAssetTypeChunkMap();
-	const int32* ChunkId = DefaultMap.Find(AssetType);
-	return ChunkId ? *ChunkId : 9999;
-}
-
-TMap<FString, int32> UHotUpdateChunkManager::GetDefaultAssetTypeChunkMap()
-{
-	return {
-		{ TEXT("Texture2D"), 1000 },
-		{ TEXT("TextureCube"), 1100 },
-		{ TEXT("Material"), 2000 },
-		{ TEXT("MaterialInstanceConstant"), 2100 },
-		{ TEXT("StaticMesh"), 3000 },
-		{ TEXT("SkeletalMesh"), 3100 },
-		{ TEXT("AnimSequence"), 4000 },
-		{ TEXT("AnimMontage"), 4100 },
-		{ TEXT("SoundWave"), 5000 },
-		{ TEXT("SoundCue"), 5100 },
-		{ TEXT("Blueprint"), 6000 },
-		{ TEXT("WidgetBlueprint"), 6100 },
-		{ TEXT("DataTable"), 7000 },
-		{ TEXT("CurveTable"), 7100 },
-		{ TEXT("Level"), 8000 },
-		{ TEXT("World"), 8100 },
-		{ TEXT("Font"), 9000 },
-		{ TEXT("Unknown"), 9999 }
-	};
 }
 
 bool UHotUpdateChunkManager::DivideByPrimaryAsset(
@@ -363,42 +285,6 @@ bool UHotUpdateChunkManager::DivideByPrimaryAsset(
 		Chunk.ChunkId = AllocateNextChunkId();
 		Chunk.ChunkName = Pair.Key;
 		Chunk.Priority = Pair.Key == TEXT("Levels") ? 0 : 10;
-		Chunk.AssetPaths = Pair.Value;
-
-		for (const FString& AssetPath : Pair.Value)
-		{
-			OutAssetToChunk.Add(AssetPath, Chunk.ChunkId);
-		}
-
-		OutChunks.Add(Chunk);
-	}
-
-	return OutChunks.Num() > 0;
-}
-
-bool UHotUpdateChunkManager::DivideByAssetType(
-	const TArray<FString>& AssetPaths,
-	IAssetRegistry* AssetRegistry,
-	TArray<FHotUpdateChunkDefinition>& OutChunks,
-	TMap<FString, int32>& OutAssetToChunk)
-{
-	TMap<FString, TArray<FString>> AssetsByType;
-	TMap<FString, int32> TypeChunkMap = GetDefaultAssetTypeChunkMap();
-
-	// 按类型分组
-	for (const FString& AssetPath : AssetPaths)
-	{
-		FString AssetType = GetAssetType(AssetPath, AssetRegistry);
-		AssetsByType.FindOrAdd(AssetType).Add(AssetPath);
-	}
-
-	// 创建 Chunk
-	for (const auto& Pair : AssetsByType)
-	{
-		FHotUpdateChunkDefinition Chunk;
-		Chunk.ChunkId = GetDefaultChunkIdForAssetType(Pair.Key);
-		Chunk.ChunkName = Pair.Key;
-		Chunk.Priority = 10;
 		Chunk.AssetPaths = Pair.Value;
 
 		for (const FString& AssetPath : Pair.Value)

@@ -16,6 +16,7 @@ DEFINE_LOG_CATEGORY_STATIC(LogHotUpdateCommandlet, Log, All);
 
 UHotUpdateCommandlet::UHotUpdateCommandlet(): bShowHelp(false), bIsShipping(false), bSkipBuild(false),
                                               bEnableMinimalPackage(false),
+                                              PatchChunkStrategy(EHotUpdateChunkStrategy::None),
                                               bIncludeBaseContainers(false),
                                               bSkipCook(false),
                                               bIncrementalCook(false)
@@ -123,6 +124,25 @@ bool UHotUpdateCommandlet::ParseCommandLine(const FString& Params)
 	bEnableMinimalPackage = FParse::Param(*Params, TEXT("minimal"));
 	FParse::Value(*Params, TEXT("whitelist="), WhitelistDirectories);
 
+	// 解析分包策略参数
+	FString ChunkStrategyStr;
+	if (FParse::Value(*Params, TEXT("chunkstrategy="), ChunkStrategyStr))
+	{
+		UEnum* ChunkStrategyEnum = StaticEnum<EHotUpdateChunkStrategy>();
+		if (ChunkStrategyEnum)
+		{
+			int64 EnumValue = ChunkStrategyEnum->GetValueByNameString(ChunkStrategyStr);
+			if (EnumValue >= 0)
+			{
+				PatchChunkStrategy = static_cast<EHotUpdateChunkStrategy>(EnumValue);
+			}
+			else
+			{
+				UE_LOG(LogHotUpdateCommandlet, Warning, TEXT("未知的分包策略: %s，使用默认值 None"), *ChunkStrategyStr);
+			}
+		}
+	}
+
 	// 解析全量热更新参数
 	bIncludeBaseContainers = FParse::Param(*Params, TEXT("includebasecontainers"));
 	FParse::Value(*Params, TEXT("basecontainerdir="), BaseContainerDir);
@@ -149,6 +169,7 @@ bool UHotUpdateCommandlet::ParseCommandLine(const FString& Params)
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  SkipBuild: %s"), bSkipBuild ? TEXT("true") : TEXT("false"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  EnableMinimalPackage: %s"), bEnableMinimalPackage ? TEXT("true") : TEXT("false"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  WhitelistDirectories: %s"), *WhitelistDirectories);
+		UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  PatchChunkStrategy: %s"), *UEnum::GetValueAsString(PatchChunkStrategy));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  IncludeBaseContainers: %s"), bIncludeBaseContainers ? TEXT("true") : TEXT("false"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  BaseContainerDir: %s"), *BaseContainerDir);
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  TextureFormat: %s"), *TextureFormatStr);
@@ -231,6 +252,7 @@ int32 UHotUpdateCommandlet::ExecuteBasePackage()
 	if (bEnableMinimalPackage)
 	{
 		Config.MinimalPackageConfig.bEnableMinimalPackage = true;
+		Config.MinimalPackageConfig.PatchChunkStrategy = PatchChunkStrategy;
 
 		// 解析必须包含的目录
 		if (!WhitelistDirectories.IsEmpty())

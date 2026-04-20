@@ -51,7 +51,6 @@ enum class EHotUpdateChunkStrategy : uint8
 	None            UMETA(DisplayName = "不分包（所有资源打包成一个Chunk）"),
 	Size            UMETA(DisplayName = "按大小分包"),
 	Directory       UMETA(DisplayName = "按目录分包"),
-	AssetType       UMETA(DisplayName = "按资源类型分包"),
 	PrimaryAsset    UMETA(DisplayName = "UE5标准分包"),
 	Hybrid          UMETA(DisplayName = "混合模式（目录优先+其余按大小）")
 };
@@ -159,6 +158,97 @@ struct HOTUPDATEEDITOR_API FHotUpdateDirectoryChunkRule
 };
 
 /**
+ * 按大小分包的详细配置
+ */
+USTRUCT(BlueprintType)
+struct HOTUPDATEEDITOR_API FHotUpdateSizeBasedChunkConfig
+{
+	GENERATED_BODY()
+
+	/// 最大 Chunk 大小（MB）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Size", meta = (ClampMin = "1"))
+	int32 MaxChunkSizeMB;
+
+	/// Chunk 名称前缀（如 "Chunk"，最终为 "Chunk_0", "Chunk_1"）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Size")
+	FString ChunkNamePrefix;
+
+	/// Chunk ID 起始值
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Size")
+	int32 ChunkIdStart;
+
+	/// 是否按大小排序（大的优先打包）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Size")
+	bool bSortBySize;
+
+
+	FHotUpdateSizeBasedChunkConfig()
+		: MaxChunkSizeMB(256)
+		, ChunkNamePrefix(TEXT("Chunk"))
+		, ChunkIdStart(0)
+		, bSortBySize(true)
+		
+	{
+	}
+};
+
+
+/**
+ * Chunk 分析配置
+ */
+USTRUCT(BlueprintType)
+struct HOTUPDATEEDITOR_API FHotUpdateChunkAnalysisConfig
+{
+	GENERATED_BODY()
+
+	/// 分包策略
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
+	EHotUpdateChunkStrategy ChunkStrategy;
+
+	/// 最大 Chunk 大小（MB），0 表示无限制（用于 Size 策略）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk", meta = (ClampMin = "0"))
+	int32 MaxChunkSizeMB;
+
+	/// 按大小分包的详细配置
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk|Size")
+	FHotUpdateSizeBasedChunkConfig SizeBasedConfig;
+
+	/// 目录分包规则列表（用于 Directory 和 Hybrid 策略）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk|Directory")
+	TArray<FHotUpdateDirectoryChunkRule> DirectoryChunkRules;
+
+	/// 是否分析依赖关系
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
+	bool bAnalyzeDependencies;
+
+	/// 基础包 Chunk ID 起始值
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
+	int32 BaseChunkIdStart;
+
+	/// 更新包 Chunk ID 起始值
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
+	int32 PatchChunkIdStart;
+
+	/// 未匹配任何规则的资源的默认 Chunk 名称
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
+	FString DefaultChunkName;
+
+	/// 未匹配任何规则的资源的默认 Chunk ID（-1 表示自动分配）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chunk")
+	int32 DefaultChunkId;
+
+	FHotUpdateChunkAnalysisConfig()
+		: ChunkStrategy(EHotUpdateChunkStrategy::PrimaryAsset)
+		, MaxChunkSizeMB(256)
+		, bAnalyzeDependencies(true)
+		, BaseChunkIdStart(0)
+		, PatchChunkIdStart(10000)
+		, DefaultChunkName(TEXT("Default"))
+		, DefaultChunkId(-1)
+	{
+	}
+};
+/**
  * 资产过滤器规则
  * 用于定义白名单的过滤条件
  */
@@ -221,48 +311,23 @@ struct HOTUPDATEEDITOR_API FHotUpdateMinimalPackageConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MinimalPackage|Dependencies", meta = (ClampMin = "0"))
 	int32 MaxDependencyDepth;
 
+	/// 非首包资源的分包策略（None=全部一个Chunk，其他=按策略分包）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MinimalPackage|ChunkSplitting")
+	EHotUpdateChunkStrategy PatchChunkStrategy;
+
+	/// 分包策略配置（MaxChunkSizeMB、DirectoryChunkRules 等）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MinimalPackage|ChunkSplitting")
+	FHotUpdateChunkAnalysisConfig PatchChunkConfig;
+
 	FHotUpdateMinimalPackageConfig()
 		: bEnableMinimalPackage(false)
 		, DependencyStrategy(EHotUpdateDependencyStrategy::HardOnly)
 		, MaxDependencyDepth(0)
+		, PatchChunkStrategy(EHotUpdateChunkStrategy::None)
 	{
 	}
 };
 
-/**
- * 按大小分包的详细配置
- */
-USTRUCT(BlueprintType)
-struct HOTUPDATEEDITOR_API FHotUpdateSizeBasedChunkConfig
-{
-	GENERATED_BODY()
-
-	/// 最大 Chunk 大小（MB）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Size", meta = (ClampMin = "1"))
-	int32 MaxChunkSizeMB;
-
-	/// Chunk 名称前缀（如 "Chunk"，最终为 "Chunk_0", "Chunk_1"）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Size")
-	FString ChunkNamePrefix;
-
-	/// Chunk ID 起始值
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Size")
-	int32 ChunkIdStart;
-
-	/// 是否按大小排序（大的优先打包）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Size")
-	bool bSortBySize;
-
-
-	FHotUpdateSizeBasedChunkConfig()
-		: MaxChunkSizeMB(256)
-		, ChunkNamePrefix(TEXT("Chunk"))
-		, ChunkIdStart(0)
-		, bSortBySize(true)
-		
-	{
-	}
-};
 
 /**
  * IoStore 容器配置

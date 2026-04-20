@@ -71,6 +71,7 @@ private:
 	// 最小包配置参数
 	bool bEnableMinimalPackage;         // 是否启用最小包模式
 	FString WhitelistDirectories;       // 必须包含的目录（分号分隔）
+	EHotUpdateChunkStrategy PatchChunkStrategy;  // 非首包资源分包策略
 
 	// 全量热更新参数
 	bool bIncludeBaseContainers;    // 是否包含基础版本容器
