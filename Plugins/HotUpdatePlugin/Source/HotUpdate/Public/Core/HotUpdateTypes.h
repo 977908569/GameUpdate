@@ -254,6 +254,20 @@ struct HOTUPDATE_API FHotUpdateContainerInfo
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Container")
 	FString UcasHash;
 
+	/// === 传统 Pak 格式字段 ===
+
+	/// .pak 文件相对路径（传统 Pak 格式）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Container")
+	FString PakPath;
+
+	/// .pak 文件大小（字节）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Container")
+	int64 PakSize;
+
+	/// .pak 文件 SHA1 Hash
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Container")
+	FString PakHash;
+
 	/// 容器类型（基础包/更新包）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Container")
 	EHotUpdateContainerType ContainerType;
@@ -273,6 +287,7 @@ struct HOTUPDATE_API FHotUpdateContainerInfo
 	FHotUpdateContainerInfo()
 		: UtocSize(0)
 		, UcasSize(0)
+		, PakSize(0)
 		, ContainerType(EHotUpdateContainerType::Base)
 		, ChunkId(0)
 		, Version(TEXT(""))

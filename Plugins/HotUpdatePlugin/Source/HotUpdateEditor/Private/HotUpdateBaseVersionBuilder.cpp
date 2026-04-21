@@ -584,13 +584,6 @@ void UHotUpdateBaseVersionBuilder::WriteMinimalPackageConfig()
 	TSharedPtr<FJsonObject> JsonObj = MakeShareable(new FJsonObject);
 	JsonObj->SetBoolField(TEXT("bEnableMinimalPackage"), CurrentConfig.MinimalPackageConfig.bEnableMinimalPackage);
 
-	TArray<TSharedPtr<FJsonValue>> WhitelistArray;
-	for (const FDirectoryPath& Dir : CurrentConfig.MinimalPackageConfig.WhitelistDirectories)
-	{
-		WhitelistArray.Add(MakeShareable(new FJsonValueString(Dir.Path)));
-	}
-	JsonObj->SetArrayField(TEXT("WhitelistDirectories"), WhitelistArray);
-	
 	// 写入预计算的 ChunkMapping（如果已预计算）
 	if (CachedChunkMapping.Num() > 0)
 	{
@@ -660,6 +653,11 @@ void UHotUpdateBaseVersionBuilder::PreComputeChunkMapping()
 	ChunkConfig.ChunkStrategy = CurrentConfig.MinimalPackageConfig.PatchChunkStrategy;
 	ChunkConfig.BaseChunkIdStart = 1;   // 热更资源从 Chunk 1 开始
 	ChunkConfig.PatchChunkIdStart = 1;
+	// 确保 SizeBasedConfig.ChunkIdStart 也从 1 开始（按大小分包时使用）
+	if (ChunkConfig.SizeBasedConfig.ChunkIdStart < 1)
+	{
+		ChunkConfig.SizeBasedConfig.ChunkIdStart = 1;
+	}
 	if (ChunkConfig.DefaultChunkId < 0)
 	{
 		ChunkConfig.DefaultChunkId = 11;  // 未匹配的资源默认分配到 Chunk 11
@@ -1010,8 +1008,39 @@ TArray<FHotUpdateContainerInfo> UHotUpdateBaseVersionBuilder::CollectContainerIn
 			}
 
 			ContainerInfos.Add(ContainerInfo);
-		}
-	};
+			}
+
+			// 收集传统 Pak 格式（.pak）
+			TArray<FString> PakFiles;
+			PlatformFile.FindFilesRecursively(PakFiles, *SearchDir, TEXT("pak"));
+			for (const FString& PakFile : PakFiles)
+			{
+				// 排除已通过 IoStore 收集的容器（避免重复）
+				bool bAlreadyCollected = false;
+				for (const FString& UtocFile : UtocFiles)
+				{
+					if (FPaths::GetBaseFilename(UtocFile) == FPaths::GetBaseFilename(PakFile))
+					{
+						bAlreadyCollected = true;
+						break;
+					}
+				}
+				if (bAlreadyCollected)
+				{
+					continue;
+				}
+
+				FHotUpdateContainerInfo ContainerInfo;
+				ContainerInfo.ContainerName = FPaths::GetBaseFilename(PakFile);
+				ContainerInfo.PakPath = PakFile.RightChop(BaseDir.Len() + 1);
+				ContainerInfo.PakSize = IFileManager::Get().FileSize(*PakFile);
+				ContainerInfo.PakHash = UHotUpdateFileUtils::CalculateFileHash(PakFile);
+				ContainerInfo.ContainerType = InContainerType;
+				ContainerInfo.ChunkId = ParseChunkId(ContainerInfo.ContainerName);
+
+				ContainerInfos.Add(ContainerInfo);
+			}
+		};
 
 	// 遍历 Content/Paks 目录（首包资源：pakchunk0, global）
 	FString PaksDir = FPaths::Combine(PlatformDir, FApp::GetProjectName(), TEXT("Content"), TEXT("Paks"));
@@ -1051,12 +1080,29 @@ bool UHotUpdateBaseVersionBuilder::BuildManifestJson(
 		ChunkObject->SetStringField(TEXT("containerType"),
 			Container.ContainerType == EHotUpdateContainerType::Base ? TEXT("base") : TEXT("patch"));
 		ChunkObject->SetNumberField(TEXT("chunkId"), Container.ChunkId);
-		ChunkObject->SetStringField(TEXT("utocPath"), Container.UtocPath);
-		ChunkObject->SetNumberField(TEXT("utocSize"), Container.UtocSize);
-		ChunkObject->SetStringField(TEXT("utocHash"), Container.UtocHash);
-		ChunkObject->SetStringField(TEXT("ucasPath"), Container.UcasPath);
-		ChunkObject->SetNumberField(TEXT("ucasSize"), Container.UcasSize);
-		ChunkObject->SetStringField(TEXT("ucasHash"), Container.UcasHash);
+
+		// IoStore 格式字段
+		if (!Container.UtocPath.IsEmpty())
+		{
+			ChunkObject->SetStringField(TEXT("utocPath"), Container.UtocPath);
+			ChunkObject->SetNumberField(TEXT("utocSize"), Container.UtocSize);
+			ChunkObject->SetStringField(TEXT("utocHash"), Container.UtocHash);
+		}
+		if (!Container.UcasPath.IsEmpty())
+		{
+			ChunkObject->SetStringField(TEXT("ucasPath"), Container.UcasPath);
+			ChunkObject->SetNumberField(TEXT("ucasSize"), Container.UcasSize);
+			ChunkObject->SetStringField(TEXT("ucasHash"), Container.UcasHash);
+		}
+
+		// 传统 Pak 格式字段
+		if (!Container.PakPath.IsEmpty())
+		{
+			ChunkObject->SetStringField(TEXT("pakPath"), Container.PakPath);
+			ChunkObject->SetNumberField(TEXT("pakSize"), Container.PakSize);
+			ChunkObject->SetStringField(TEXT("pakHash"), Container.PakHash);
+		}
+
 		OutChunksArray.Add(MakeShareable(new FJsonValueObject(ChunkObject)));
 	}
 	RootObject->SetArrayField(TEXT("chunks"), OutChunksArray);

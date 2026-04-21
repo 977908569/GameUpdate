@@ -52,9 +52,10 @@ bool UHotUpdateManifestParser::ParseFromJson(const FString& JsonString, FHotUpda
 	// 解析基础版本号
 	JsonObject->TryGetStringField(TEXT("baseVersion"), OutManifest.BaseVersion);
 
-	// 解析 containers 数组
+	// 解析 containers/chunks 数组（兼容两种字段名）
 	const TArray<TSharedPtr<FJsonValue>>* ContainersArray;
-	if (JsonObject->TryGetArrayField(TEXT("containers"), ContainersArray))
+	if (JsonObject->TryGetArrayField(TEXT("containers"), ContainersArray) ||
+		JsonObject->TryGetArrayField(TEXT("chunks"), ContainersArray))
 	{
 		OutManifest.Containers.Empty();
 		for (const TSharedPtr<FJsonValue>& ContainerValue : *ContainersArray)
@@ -64,12 +65,20 @@ bool UHotUpdateManifestParser::ParseFromJson(const FString& JsonString, FHotUpda
 
 			FHotUpdateContainerInfo Container;
 			ContainerObject->TryGetStringField(TEXT("containerName"), Container.ContainerName);
+			ContainerObject->TryGetStringField(TEXT("ChunkName"), Container.ContainerName);  // 兼容 ChunkName
+
+			// IoStore 格式字段
 			ContainerObject->TryGetStringField(TEXT("utocPath"), Container.UtocPath);
 			ContainerObject->TryGetNumberField(TEXT("utocSize"), Container.UtocSize);
 			ContainerObject->TryGetStringField(TEXT("utocHash"), Container.UtocHash);
 			ContainerObject->TryGetStringField(TEXT("ucasPath"), Container.UcasPath);
 			ContainerObject->TryGetNumberField(TEXT("ucasSize"), Container.UcasSize);
 			ContainerObject->TryGetStringField(TEXT("ucasHash"), Container.UcasHash);
+
+			// 传统 Pak 格式字段
+			ContainerObject->TryGetStringField(TEXT("pakPath"), Container.PakPath);
+			ContainerObject->TryGetNumberField(TEXT("pakSize"), Container.PakSize);
+			ContainerObject->TryGetStringField(TEXT("pakHash"), Container.PakHash);
 
 			// 解析容器类型（字符串格式：base_xxx / patch_xxx）
 			FString ContainerTypeStr;
@@ -145,16 +154,32 @@ FString UHotUpdateManifestParser::ToJsonString(const FHotUpdateManifest& Manifes
 	{
 		TSharedPtr<FJsonObject> ContainerObject = MakeShareable(new FJsonObject());
 		ContainerObject->SetStringField(TEXT("containerName"), Container.ContainerName);
-		ContainerObject->SetStringField(TEXT("utocPath"), Container.UtocPath);
-		ContainerObject->SetNumberField(TEXT("utocSize"), Container.UtocSize);
-		ContainerObject->SetStringField(TEXT("utocHash"), Container.UtocHash);
-		ContainerObject->SetStringField(TEXT("ucasPath"), Container.UcasPath);
-		ContainerObject->SetNumberField(TEXT("ucasSize"), Container.UcasSize);
-		ContainerObject->SetStringField(TEXT("ucasHash"), Container.UcasHash);
+
+		// IoStore 格式字段
+		if (!Container.UtocPath.IsEmpty())
+		{
+			ContainerObject->SetStringField(TEXT("utocPath"), Container.UtocPath);
+			ContainerObject->SetNumberField(TEXT("utocSize"), Container.UtocSize);
+			ContainerObject->SetStringField(TEXT("utocHash"), Container.UtocHash);
+		}
+		if (!Container.UcasPath.IsEmpty())
+		{
+			ContainerObject->SetStringField(TEXT("ucasPath"), Container.UcasPath);
+			ContainerObject->SetNumberField(TEXT("ucasSize"), Container.UcasSize);
+			ContainerObject->SetStringField(TEXT("ucasHash"), Container.UcasHash);
+		}
+
+		// 传统 Pak 格式字段
+		if (!Container.PakPath.IsEmpty())
+		{
+			ContainerObject->SetStringField(TEXT("pakPath"), Container.PakPath);
+			ContainerObject->SetNumberField(TEXT("pakSize"), Container.PakSize);
+			ContainerObject->SetStringField(TEXT("pakHash"), Container.PakHash);
+		}
 
 		// 容器类型
 		ContainerObject->SetStringField(TEXT("containerType"),
-			Container.ContainerType == EHotUpdateContainerType::Base ? TEXT("base") : TEXT("patch_pak"));
+			Container.ContainerType == EHotUpdateContainerType::Base ? TEXT("base") : TEXT("patch"));
 
 		// Chunk ID
 		ContainerObject->SetNumberField(TEXT("chunkId"), Container.ChunkId);
