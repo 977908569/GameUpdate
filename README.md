@@ -19,15 +19,16 @@ Unreal Engine 5.7 热更新（OTA 补丁）插件，支持 Pak/IoStore 打包、
 
 | 功能 | 说明 |
 |------|------|
-| 运行时热更新 | 检测版本 → 下载补丁 → 挂载 Pak，全流程自动化 |
-| 增量更新 | 基于 IoStore 容器级别的差异下载，仅下载哈希变化的容器 |
+| 运行时热更新 | 检测版本 → 下载补丁 → 挂载 Pak/IoStore，全流程自动化 |
+| 增量更新 | 基于 IoStore/Pak 容器级别的差异下载，仅下载哈希变化的容器 |
 | 多平台下载 | HTTP 下载器（桌面）、Android 原生 DownloadManager、iOS NSURLSession 后台传输，支持暂停/恢复/重试 |
-| Pak 挂载 | 运行时动态挂载/卸载 Pak 文件，支持加密密钥注册 |
+| Pak/IoStore 挂载 | 运行时动态挂载/卸载 Pak/IoStore 文件，支持加密密钥注册 |
 | 版本管理 | JSON 清单格式（latest.json 两步发现），支持链式更新（1.0.0 → 1.0.1 → 1.0.2） |
-| 编辑器工具 | 4 合 1 Slate 面板：基础包构建、补丁打包、版本对比、Pak 查看器 |
+| 编辑器工具 | 4 合 1 Slate 面板：基础包构建、热更包打包、版本对比、Pak 查看器 |
 | Blueprint 支持 | 所有运行时 API 均可从蓝图调用 |
-| 分包功能 | 支持 6 种分包策略，灵活管理资源模块化下载 |
+| 分包功能 | 支持 2 种分包策略（不分包、按大小分包），灵活管理资源模块化下载 |
 | 最小包模式 | 首包瘦身，pakchunk0 随安装包分发，pakchunk1+ 通过 CDN 热更新下载 |
+| 容器格式支持 | 同时支持 IoStore（.utoc/.ucas）和传统 Pak 格式 |
 
 ## 环境要求
 
@@ -214,11 +215,9 @@ python upload_hotpatch.py
 | 策略 | 说明 | 适用场景 |
 |------|------|----------|
 | `None` | 不分包，所有资源打包成一个 Chunk | 小型项目、快速原型 |
-| `Size` | 按大小分包，超过 MaxChunkSizeMB 自动分割 | 控制单个包体积 |
-| `Directory` | 按目录分包，根据规则将指定目录独立打包 | 模块化项目结构 |
-| `AssetType` | 按资源类型分包（Texture、Material、Mesh 等） | 资源类型隔离管理 |
-| `PrimaryAsset` | UE5 标准 Primary Asset 分包（默认） | 标准游戏资源管理 |
-| `Hybrid` | 混合模式：目录优先 + 其余按大小分包 | 精细化分包控制 |
+| `Size` | 按大小分包，超过 MaxChunkSizeMB 自动分割 | 控制单个包体积，大项目推荐 |
+
+> **注意**：相比旧版本，已移除 Directory、AssetType、PrimaryAsset、Hybrid 策略，简化为两种核心策略。
 
 ### 配置方式
 
@@ -226,10 +225,20 @@ python upload_hotpatch.py
 
 在 **HotUpdateEditor** 的 Base Version Panel 中配置分包参数：
 
-- **分包策略**：选择 ChunkStrategy
-- **目录分包规则**：添加 DirectoryChunkRules
-- **按大小分包配置**：设置 SizeBasedConfig
+- **分包策略**：选择 ChunkStrategy（None 或 Size）
+- **按大小分包配置**：设置 SizeBasedConfig（MaxChunkSizeMB、ChunkNamePrefix 等）
 - **最小包模式**：启用 MinimalPackage 并配置白名单
+
+#### 最小包 Chunk 分配规则
+
+启用最小包模式后，Chunk 分配规则如下：
+
+| Chunk ID | 内容 | 说明 |
+|----------|------|------|
+| Chunk 0 | 白名单资源 + 所有依赖（硬依赖+软依赖） | 随首包安装 |
+| Chunk 11 | 其余所有资源 | 通过热更新下载 |
+
+> **依赖策略**：当前版本默认使用 `IncludeAll` 策略，白名单资源的所有依赖（硬依赖+软依赖）都会进入 Chunk 0。
 
 #### 代码配置示例
 
@@ -244,18 +253,6 @@ Config.BuildConfiguration = EHotUpdateBuildConfiguration::Development;
 Config.MinimalPackageConfig.bEnableMinimalPackage = true;
 ```
 
-### 目录分包规则字段
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `DirectoryPath` | FString | 要分包的目录路径（如 `/Game/Maps`） |
-| `ChunkName` | FString | Chunk 名称（如 `Maps`） |
-| `ChunkId` | int32 | 指定 Chunk ID（-1 自动分配） |
-| `Priority` | int32 | 加载优先级（越小越先加载） |
-| `MaxSizeMB` | int32 | 该 Chunk 最大大小（0 = 无限制） |
-| `bRecursive` | bool | 是否递归匹配子目录 |
-| `ExcludedSubDirs` | TArray\<FString\> | 排除的子目录列表 |
-
 ### 按大小分包配置字段
 
 | 字段 | 类型 | 说明 |
@@ -263,8 +260,7 @@ Config.MinimalPackageConfig.bEnableMinimalPackage = true;
 | `MaxChunkSizeMB` | int32 | 最大 Chunk 大小（默认 256MB） |
 | `ChunkNamePrefix` | FString | Chunk 名称前缀（默认 `Chunk`） |
 | `ChunkIdStart` | int32 | Chunk ID 起始值 |
-| `bSortBySize` | bool | 是否按大小排序（大资源优先） |
-| `bBalanceDistribution` | bool | 是否均衡分布（各 Chunk 大小接近） |
+| `bSortBySize` | bool | 是否按大小排序（大资源优先打包） |
 
 ### 最小包模式
 
@@ -278,20 +274,18 @@ MinimalConfig.bEnableMinimalPackage = true;
 // 白名单目录（必须打包到 Chunk 0）
 MinimalConfig.WhitelistDirectories.Add(FDirectoryPath{"/Game/UI"});
 MinimalConfig.WhitelistDirectories.Add(FDirectoryPath{"/Game/Startup"});
-
-// 依赖处理策略
-MinimalConfig.DependencyStrategy = EHotUpdateDependencyStrategy::HardOnly;  // 仅硬依赖
-MinimalConfig.MaxDependencyDepth = 0;  // 无限制
 ```
 
-**依赖处理策略**：
+**最小包工作流程**：
 
-| 策略 | 说明 |
-|------|------|
-| `IncludeAll` | 包含所有依赖（硬依赖 + 软依赖） |
-| `HardOnly` | 仅硬依赖（必须的引用） |
-| `SoftOnly` | 仅软依赖（可选引用） |
-| `None` | 不包含依赖 |
+1. 编辑器打包时将 Chunk 分配规则写入 `Intermediate/MinimalPackageConfig.json`
+2. Cook 阶段，`HotUpdateAssetManager` 读取配置文件进行 Chunk 分配：
+   - 白名单资源及其依赖 → Chunk 0
+   - 其余资源 → Chunk 11
+3. UAT Staging 阶段，`StripExtraPakChunks.Automation.cs` 将 pakchunk1+ 移动到热更输出目录
+4. 最终安装包只包含 pakchunk0，pakchunk1+ 通过 CDN 分发
+
+> **依赖处理**：白名单资源的所有依赖（硬依赖+软依赖）都会自动进入 Chunk 0，确保首包可正常运行。
 
 ### 运行时 Chunk 管理
 
@@ -326,12 +320,13 @@ EHotUpdateChunkState State = HotUpdateManager->GetChunkState(ChunkId);
 | `UHotUpdateHttpDownloader` | HTTP 并发下载（Windows/Mac/Linux），基于 UE FHttpModule，暂停/恢复/断点续传 |
 | `UHotUpdateAndroidDownloader` | Android 原生下载，通过 JNI 调用 DownloadManager API，App 挂起后继续下载 |
 | `UHotUpdateIOSDownloader` | iOS 后台下载，通过 NSURLSession background transfer，App 进入后台后继续下载 |
-| `UHotUpdatePakManager` | Pak/IoStore 挂载/卸载/校验，加密密钥注册 |
-| `UHotUpdateManifestParser` | JSON 清单解析/保存 |
-| `UHotUpdateIncrementalCalculator` | 增量差异计算 |
+| `UHotUpdatePakManager` | Pak/IoStore 挂载/卸载/校验，支持两种容器格式，加密密钥注册 |
+| `UHotUpdateManifestParser` | JSON 清单解析/保存，支持 IoStore 和 Pak 格式字段 |
+| `UHotUpdateIncrementalCalculator` | 增量差异计算（容器级别） |
 | `UHotUpdateVersionStorage` | 本地版本与 manifest 持久化 |
-| `UHotUpdateAssetManager` | 自定义 AssetManager，替换 UE 默认 AssetManager 实现 Chunk 分配 |
+| `UHotUpdateAssetManager` | 自定义 AssetManager，通过 ChunkMapping 配置文件实现 Chunk 分配 |
 | `UHotUpdateSettings` | 开发者配置（服务器地址、并发数、路径等） |
+| `UHotUpdateFileUtils` | 文件工具类，Hash 计算、路径处理等 |
 
 ### 下载模块架构
 
@@ -376,13 +371,39 @@ UHotUpdateDownloaderBase* UHotUpdateDownloaderBase::CreateDownloader(UObject* Ou
 
 #### 容器级增量下载
 
-增量比较在 **IoStore 容器级别**进行（不是单个文件级别）：
+增量比较在 **容器级别**进行（IoStore 或 Pak，不是单个文件级别）：
 
-1. `CalculateIncrementalDownload()` 按 `ChunkId` 比较本地与服务端 manifest 中每个容器的 `UcasHash` 和 `UtocHash`
-2. 哈希相同的容器整体跳过，不重复下载
-3. 增量单位是 `.utoc` + `.ucas` 对，不是单个资产
+1. `CalculateIncrementalDownload()` 按 `ChunkId` 比较本地与服务端 manifest 中每个容器
+2. IoStore 格式：比较 `UcasHash` 和 `UtocHash`，哈希相同的容器跳过
+3. Pak 格式：比较 `PakHash`，哈希相同的容器跳过
+4. 增量单位是 `.utoc` + `.ucas` 对或单个 `.pak` 文件，不是单个资产
 
 更新成功后，`UHotUpdateVersionStorage` 将完整服务端 manifest 缓存到本地磁盘。下次 `CheckForUpdate()` 时加载缓存 manifest 与服务端比较计算增量下载列表。无本地 manifest 时执行全量下载。
+
+#### Manifest 数据结构
+
+Manifest JSON 格式（版本 2）包含以下字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `manifestVersion` | int32 | Manifest 版本号（当前为 2） |
+| `packageKind` | int32 | 包类型：0=基础包，1=热更包 |
+| `version` | object | 版本信息（version、platform、timestamp） |
+| `baseVersion` | string | 基础版本号（仅热更包有效） |
+| `containers` | array | 容器列表（支持 IoStore 和 Pak 格式） |
+
+**容器信息字段**：
+
+| 字段 | 适用格式 | 说明 |
+|------|----------|------|
+| `containerName` | both | 容器名称 |
+| `containerType` | both | 容器类型：`base_xxx` 或 `patch_xxx` |
+| `chunkId` | both | Chunk ID |
+| `utocPath/utocSize/utocHash` | IoStore | .utoc 文件路径/大小/SHA1 |
+| `ucasPath/ucasSize/ucasHash` | IoStore | .ucas 文件路径/大小/SHA1 |
+| `pakPath/pakSize/pakHash` | Pak | .pak 文件路径/大小/SHA1 |
+
+> **热更包 Manifest 特性**：热更新包的 manifest 只包含 patch 容器（chunkId != 0），不包含基础包 pakchunk0，避免重复下载基础资源。
 
 #### Auto-Download
 
@@ -392,16 +413,16 @@ UHotUpdateDownloaderBase* UHotUpdateDownloaderBase::CreateDownloader(UObject* Ou
 
 | 面板 | 说明 |
 |------|------|
-| Base Version Panel | 构建完整基础包 |
-| Packaging Panel | 构建补丁/差异包 |
+| Base Version Panel | 构建完整基础包（支持最小包模式） |
+| Packaging Panel | 构建热更包/差异包 |
 | Version Diff Panel | 版本对比 |
 | Pak Viewer Panel | 查看 Pak/IoStore 内容 |
 
 ### 数据流
 
 ```
-编辑器: 资产 → Chunk 分配 → IoStore 构建 → 清单生成 → 版本注册
-运行时: 检查更新(HTTP) → 解析清单 → 增量计算(容器级) → 下载(并发) → 校验哈希 → 挂载Pak → 更新版本
+编辑器: 资源 → Chunk 分配（ChunkMapping 配置） → IoStore/Pak 构建 → 清单生成 → 版本注册
+运行时: 检查更新(HTTP) → 解析清单 → 增量计算(容器级) → 下载(并发) → 校验哈希 → 挂载容器 → 更新版本
 ```
 
 ## 目录结构
@@ -535,15 +556,16 @@ LogHotUpdateEditor=Verbose
 
 ### 增量更新如何工作？
 
-增量更新通过 `CalculateIncrementalDownload()` 在 **IoStore 容器级别**计算差异：
+增量更新通过 `CalculateIncrementalDownload()` 在 **容器级别**计算差异（IoStore 或 Pak）：
 
-1. 比对新旧版本 Manifest 中每个 Chunk 下的 IoStore 容器
-2. 按 `UcasHash` 和 `UtocHash` 比较，哈希相同的容器整体跳过
-3. 仅下载哈希变化的 `.utoc` + `.ucas` 容器对
-4. 支持链式更新（1.0.0 → 1.0.1 → 1.0.2）
-5. 无本地缓存 manifest 时执行全量下载
+1. 比对新旧版本 Manifest 中每个 Chunk 下的容器
+2. IoStore 格式：按 `UcasHash` 和 `UtocHash` 比较，哈希相同的容器整体跳过
+3. Pak 格式：按 `PakHash` 比较，哈希相同的容器跳过
+4. 仅下载哈希变化的容器（`.utoc` + `.ucas` 对或 `.pak` 文件）
+5. 支持链式更新（1.0.0 → 1.0.1 → 1.0.2）
+6. 无本地缓存 manifest 时执行全量下载
 
-> **注意**：增量单位是容器（`.utoc` + `.ucas` 对），不是单个资产文件。
+> **注意**：增量单位是容器（`.utoc` + `.ucas` 对或 `.pak` 文件），不是单个资产文件。热更包 Manifest 只包含 patch 容器（chunkId != 0），不包含基础包 pakchunk0。
 
 ### latest.json 是什么？为什么不是直接请求 manifest.json？
 
