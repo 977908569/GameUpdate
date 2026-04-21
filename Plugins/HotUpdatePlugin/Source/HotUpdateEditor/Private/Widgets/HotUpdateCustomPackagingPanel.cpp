@@ -1,7 +1,6 @@
 // Copyright czm. All Rights Reserved.
 
 #include "Widgets/HotUpdateCustomPackagingPanel.h"
-#include "Widgets/HotUpdatePackagingCallbackHandler.h"
 #include "HotUpdateEditor.h"
 #include "HotUpdateEditorSettings.h"
 #include "HotUpdateEditorStyle.h"
@@ -47,17 +46,11 @@ void SHotUpdateCustomPackagingPanel::Construct(const FArguments& InArgs)
 	AndroidTextureFormatOptions.Add(MakeShareable(new EHotUpdateAndroidTextureFormat(EHotUpdateAndroidTextureFormat::Multi)));
 	SelectedAndroidTextureFormat = AndroidTextureFormatOptions[0];
 
-	// 创建回调处理器并绑定委托
-	CallbackHandler = NewObject<UHotUpdatePackagingCallbackHandler>();
-	CallbackHandler->AddToRoot();
-	CallbackHandler->OnCustomCompleteDelegate.BindSP(this, &SHotUpdateCustomPackagingPanel::OnPackagingComplete);
-	CallbackHandler->OnProgressDelegate.BindSP(this, &SHotUpdateCustomPackagingPanel::OnPackagingProgress);
-
 	// 创建更新包构建器
 	CustomPackageBuilder = NewObject<UHotUpdateCustomPackageBuilder>();
 	CustomPackageBuilder->AddToRoot();
-	CustomPackageBuilder->OnProgress.AddDynamic(CallbackHandler, &UHotUpdatePackagingCallbackHandler::OnPackagingProgress);
-	CustomPackageBuilder->OnComplete.AddDynamic(CallbackHandler, &UHotUpdatePackagingCallbackHandler::OnCustomPackageComplete);
+	CustomPackageBuilder->OnProgress.AddSP(this, &SHotUpdateCustomPackagingPanel::OnPackagingProgress);
+	CustomPackageBuilder->OnComplete.AddSP(this, &SHotUpdateCustomPackagingPanel::OnPackagingComplete);
 
 	// 默认输出目录
 	PackageConfig.OutputDirectory.Path = FPaths::ProjectSavedDir() / TEXT("HotUpdateCustomPackages");
@@ -77,6 +70,17 @@ void SHotUpdateCustomPackagingPanel::Construct(const FArguments& InArgs)
 			CreateRightPanel()
 		]
 	];
+}
+
+SHotUpdateCustomPackagingPanel::~SHotUpdateCustomPackagingPanel()
+{
+	if (CustomPackageBuilder)
+	{
+		CustomPackageBuilder->OnProgress.RemoveAll(this);
+		CustomPackageBuilder->OnComplete.RemoveAll(this);
+		CustomPackageBuilder->RemoveFromRoot();
+		CustomPackageBuilder = nullptr;
+	}
 }
 
 TSharedRef<SWidget> SHotUpdateCustomPackagingPanel::CreateLeftPanel()
@@ -696,18 +700,6 @@ FText SHotUpdateCustomPackagingPanel::GetNonAssetInfoText() const
 	return FText::FromString(FString::Printf(TEXT("%d 项"), NonAssetFilePaths.Num()));
 }
 
-void SHotUpdateCustomPackagingPanel::SetUassetFilePaths(const TArray<FString>& InPaths)
-{
-	UassetFilePaths = InPaths;
-	RefreshUassetList();
-}
-
-void SHotUpdateCustomPackagingPanel::SetNonAssetFilePaths(const TArray<FString>& InPaths)
-{
-	NonAssetFilePaths = InPaths;
-	RefreshNonAssetList();
-}
-
 // ===== 打包操作 =====
 
 void SHotUpdateCustomPackagingPanel::UpdatePackageConfigFromUI()
@@ -739,7 +731,7 @@ FReply SHotUpdateCustomPackagingPanel::OnPackageClicked()
 	FHotUpdateCustomPackageConfig CustomConfig;
 	CustomConfig.PatchVersion = VersionStr;
 	CustomConfig.Platform = PackageConfig.Platform;
-	CustomConfig.UassetFilePaths = UassetFilePaths;
+	CustomConfig.UAssetFilePaths = UassetFilePaths;
 	CustomConfig.NonAssetFilePaths = NonAssetFilePaths;
 	CustomConfig.OutputDirectory = PackageConfig.OutputDirectory;
 	CustomConfig.bSkipCook = SkipCookCheckBox.IsValid() && SkipCookCheckBox->IsChecked();
@@ -806,7 +798,7 @@ bool SHotUpdateCustomPackagingPanel::IsPackagingEnabled() const
 	return UassetFilePaths.Num() > 0 || NonAssetFilePaths.Num() > 0;
 }
 
-void SHotUpdateCustomPackagingPanel::OnPackagingComplete(const FHotUpdatePackageResult& Result)
+void SHotUpdateCustomPackagingPanel::OnPackagingComplete(const FHotUpdateCustomPackageResult& Result)
 {
 	bIsPackaging = false;
 
@@ -820,15 +812,15 @@ void SHotUpdateCustomPackagingPanel::OnPackagingComplete(const FHotUpdatePackage
 	{
 		FString SuccessMsg = FString::Printf(
 			TEXT("打包成功! 文件: %s, 大小: %.2f MB, 资源数: %d"),
-			*Result.OutputFilePath,
-			Result.FileSize / (1024.0 * 1024.0),
+			*Result.PatchUtocPath,
+			Result.PatchSize / (1024.0 * 1024.0),
 			Result.AssetCount
 		);
 		StatusTextBlock->SetText(FText::FromString(SuccessMsg));
 		StatusTextBlock->SetColorAndOpacity(FHotUpdateEditorStyle::GetSuccessColor());
 		ProgressBar->SetPercent(1.0f);
 
-		FHotUpdateNotificationHelper::ShowSuccessNotification(FText::FromString(SuccessMsg), FPaths::GetPath(Result.OutputFilePath));
+		FHotUpdateNotificationHelper::ShowSuccessNotification(FText::FromString(SuccessMsg), FPaths::GetPath(Result.PatchUtocPath));
 	}
 	else
 	{
@@ -1119,20 +1111,6 @@ EVisibility SHotUpdateCustomPackagingPanel::GetAndroidTextureFormatVisibility() 
 		return EVisibility::Visible;
 	}
 	return EVisibility::Collapsed;
-}
-
-// ===== 清理 =====
-
-void SHotUpdateCustomPackagingPanel::CleanupRootReferences()
-{
-	if (CustomPackageBuilder)
-	{
-		CustomPackageBuilder->RemoveFromRoot();
-	}
-	if (CallbackHandler)
-	{
-		CallbackHandler->RemoveFromRoot();
-	}
 }
 
 #undef LOCTEXT_NAMESPACE

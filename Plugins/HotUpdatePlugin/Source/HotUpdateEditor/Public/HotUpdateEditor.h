@@ -4,7 +4,6 @@
 
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
-#include "HotUpdateEditorTypes.h"
 
 // 日志分类
 DECLARE_LOG_CATEGORY_EXTERN(LogHotUpdateEditor, Verbose, All);
@@ -13,8 +12,6 @@ DECLARE_LOG_CATEGORY_EXTERN(LogHotUpdateEditor, Verbose, All);
 struct FHotUpdatePendingData
 {
 	static int32 InitialTab;
-	static TArray<FString> UassetFilePaths;
-	static TArray<FString> NonAssetFilePaths;
 
 	/** 标记 Tab 已关闭，需要重新注册 spawner */
 	static bool bNeedReRegisterSpawner;
@@ -22,8 +19,6 @@ struct FHotUpdatePendingData
 	static void Reset()
 	{
 		InitialTab = 0;
-		UassetFilePaths.Empty();
-		NonAssetFilePaths.Empty();
 		bNeedReRegisterSpawner = false;
 	}
 };

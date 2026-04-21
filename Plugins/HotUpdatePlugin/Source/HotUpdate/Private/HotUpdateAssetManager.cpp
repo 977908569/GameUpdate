@@ -3,15 +3,14 @@
 #include "HotUpdateAssetManager.h"
 #include "HotUpdate.h"
 #include "Core/HotUpdateSettings.h"
+#include "Core/HotUpdateFileUtils.h"
 #include "Misc/CommandLine.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "HAL/PlatformFileManager.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonSerializer.h"
-#include "Policies/CondensedJsonPrintPolicy.h"
-#include "AssetRegistry/AssetRegistryModule.h"
-#include "AssetRegistry/IAssetRegistry.h"
+#include "Misc/PackageName.h"
 
 // Config file path for minimal package mode
 static FString GetMinimalPackageConfigFilePath()
@@ -108,43 +107,20 @@ bool UHotUpdateAssetManager::GetPackageChunkIds(
 					UE_LOG(LogHotUpdate, Log, TEXT("GetPackageChunkIds: Loaded %d ChunkMapping entries"), CachedChunkMapping.Num());
 				}
 
-				// Pre-compute all dependencies of whitelist packages
-				if (bMinimalPackageEnabled && CachedWhitelistDirs.Num() > 0)
+				// Read Chunk0Packages (pre-computed by Editor process: whitelist + dependencies)
+				const TArray<TSharedPtr<FJsonValue>>* Chunk0Array;
+				if (JsonObj->TryGetArrayField(TEXT("Chunk0Packages"), Chunk0Array))
 				{
-					FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
-					IAssetRegistry* AssetRegistry = &AssetRegistryModule.Get();
-
-					if (AssetRegistry->IsLoadingAssets())
+					for (const TSharedPtr<FJsonValue>& Value : *Chunk0Array)
 					{
-						AssetRegistry->SearchAllAssets(true);
-						while (AssetRegistry->IsLoadingAssets())
-						{
-							FPlatformProcess::Sleep(0.1f);
-						}
+						CachedChunk0Packages.Add(Value->AsString());
 					}
-
-					// Collect all whitelist packages and their dependencies
-					TSet<FString> Visited;
-					for (const FString& WhitelistDir : CachedWhitelistDirs)
-					{
-						TArray<FAssetData> Assets;
-						AssetRegistry->GetAssetsByPath(*WhitelistDir, Assets, true);
-						for (const FAssetData& Asset : Assets)
-						{
-							FString AssetPath = Asset.PackageName.ToString();
-							CachedChunk0Packages.Add(AssetPath);
-							CollectDependenciesRecursive(AssetPath, AssetRegistry, Visited, 50);
-						}
-					}
-					CachedChunk0Packages.Append(Visited);
-
-					UE_LOG(LogHotUpdate, Log, TEXT("GetPackageChunkIds: Collected %d packages for Chunk 0 (whitelist + dependencies)"),
-						CachedChunk0Packages.Num());
+					UE_LOG(LogHotUpdate, Log, TEXT("GetPackageChunkIds: Loaded %d Chunk0Packages"), CachedChunk0Packages.Num());
 				}
-			}
 
-			UE_LOG(LogHotUpdate, Log, TEXT("GetPackageChunkIds config loaded: MinimalPackage=%s, WhitelistDirs=%d, Chunk0Packages=%d"),
-				bMinimalPackageEnabled ? TEXT("True") : TEXT("False"), CachedWhitelistDirs.Num(), CachedChunk0Packages.Num());
+				UE_LOG(LogHotUpdate, Log, TEXT("GetPackageChunkIds config loaded: MinimalPackage=%s, WhitelistDirs=%d, Chunk0Packages=%d"),
+					bMinimalPackageEnabled ? TEXT("True") : TEXT("False"), CachedWhitelistDirs.Num(), CachedChunk0Packages.Num());
+			}
 		}
 	}
 
@@ -154,9 +130,7 @@ bool UHotUpdateAssetManager::GetPackageChunkIds(
 		FString PackageStr = PackageName.ToString();
 
 		// 引擎资源始终分配到 Chunk 0（首包）
-		// 引擎默认材质等 /Engine/ 路径在运行时引擎初始化阶段就需要加载，
-		// 此时热更系统尚未就绪，无法从外部下载这些资源
-		if (PackageStr.StartsWith(TEXT("/Engine/")))
+		if (UHotUpdateFileUtils::IsEngineAsset(PackageStr))
 		{
 			OutChunkList.Empty();
 			OutChunkList.Add(0);
@@ -208,41 +182,5 @@ bool UHotUpdateAssetManager::GetPackageChunkIds(
 
 	// Return engine's default assignment
 	return bHasChunkIds;
-}
-
-void UHotUpdateAssetManager::CollectDependenciesRecursive(
-	const FString& PackagePath,
-	IAssetRegistry* AssetRegistry,
-	TSet<FString>& Visited,
-	int32 MaxDepth)
-{
-	if (MaxDepth <= 0 || Visited.Contains(PackagePath))
-	{
-		return;
-	}
-
-	// Only collect dependencies for valid asset paths
-	// Includes /Game/ (project), /Engine/ (engine), and plugin paths (e.g. /NNE/, /Water/)
-	// Excludes /Script/ (C++ type references, not assets)
-	if (!(PackagePath.StartsWith(TEXT("/Game/")) || PackagePath.StartsWith(TEXT("/Engine/")) ||
-		(PackagePath.StartsWith(TEXT("/")) && !PackagePath.StartsWith(TEXT("/Script/")))))
-	{
-		return;
-	}
-
-	Visited.Add(PackagePath);
-
-	// Get package dependencies
-	TArray<FAssetIdentifier> Dependencies;
-	AssetRegistry->GetDependencies(FAssetIdentifier(*PackagePath), Dependencies, UE::AssetRegistry::EDependencyCategory::Package);
-
-	for (const FAssetIdentifier& Dep : Dependencies)
-	{
-		FString DepPackageName = Dep.PackageName.ToString();
-		if (!Visited.Contains(DepPackageName))
-		{
-			CollectDependenciesRecursive(DepPackageName, AssetRegistry, Visited, MaxDepth - 1);
-		}
-	}
 }
 #endif

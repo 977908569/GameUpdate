@@ -76,26 +76,6 @@ void SHotUpdateMainWindow::SetInitialTab(int32 TabIndex)
 	TabManager->TryInvokeTab(TabId);
 }
 
-void SHotUpdateMainWindow::SetUassetFilePaths(const TArray<FString>& InPaths)
-{
-	CachedUassetFilePaths = InPaths;
-	if (CustomPackagingPanel.IsValid())
-	{
-		CustomPackagingPanel->SetUassetFilePaths(InPaths);
-		CachedUassetFilePaths.Empty();
-	}
-}
-
-void SHotUpdateMainWindow::SetNonAssetFilePaths(const TArray<FString>& InPaths)
-{
-	CachedNonAssetFilePaths = InPaths;
-	if (CustomPackagingPanel.IsValid())
-	{
-		CustomPackagingPanel->SetNonAssetFilePaths(InPaths);
-		CachedNonAssetFilePaths.Empty();
-	}
-}
-
 
 void SHotUpdateMainWindow::FillWindowMenu(FMenuBuilder& MenuBuilder, const TSharedPtr<FTabManager> TabManager)
 {
@@ -188,21 +168,12 @@ TSharedRef<SDockTab> SHotUpdateMainWindow::OnSpawnCustomPackagingTab(const FSpaw
 {
 	SHotUpdateMainWindow* MutableThis = const_cast<SHotUpdateMainWindow*>(this);
 
-	auto Tab = SNew(SDockTab)
+	return SNew(SDockTab)
 		.TabRole(PanelTab)
 		.Label(LOCTEXT("CustomPackagingTab", "自定义打包"))
 		[
 			SAssignNew(MutableThis->CustomPackagingPanel, SHotUpdateCustomPackagingPanel)
 		];
-
-	// 应用缓存的数据
-	if (MutableThis->CachedUassetFilePaths.Num() > 0)
-	{
-		MutableThis->CustomPackagingPanel->SetUassetFilePaths(MutableThis->CachedUassetFilePaths);
-		MutableThis->CachedUassetFilePaths.Empty();
-	}
-
-	return Tab;
 }
 
 TSharedRef<SDockTab> SHotUpdateMainWindow::OnSpawnVersionDiffTab(const FSpawnTabArgs& Args) const

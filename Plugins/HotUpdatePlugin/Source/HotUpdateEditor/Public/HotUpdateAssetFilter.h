@@ -62,7 +62,7 @@ public:
 	 */
 	static TArray<FString> CollectAssetsFromDirectories(
 		const TArray<FDirectoryPath>& Directories,
-		IAssetRegistry* AssetRegistry);
+		const IAssetRegistry* AssetRegistry);
 
 	/**
 	 * 获取资产依赖

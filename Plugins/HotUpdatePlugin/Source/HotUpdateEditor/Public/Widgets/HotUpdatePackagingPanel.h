@@ -11,7 +11,6 @@
 #include "HotUpdateEditorTypes.h"
 
 class UHotUpdatePatchPackageBuilder;
-class UHotUpdatePackagingCallbackHandler;
 class SProgressBar;
 
 /**
@@ -26,12 +25,10 @@ public:
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
-
-	/** 清理 Root 引用 */
-	void CleanupRootReferences();
+	~SHotUpdatePackagingPanel();
 
 	/** 打包完成回调 */
-	void OnPackagingComplete(const FHotUpdatePackageResult& Result);
+	void OnPackagingComplete(const FHotUpdatePatchPackageResult& Result);
 
 	/** 打包进度回调 */
 	void OnPackagingProgress(const FHotUpdatePackageProgress& Progress);
@@ -107,9 +104,6 @@ private:
 
 	/** 更新包构建器 */
 	TObjectPtr<UHotUpdatePatchPackageBuilder> PatchPackageBuilder;
-
-	/** 回调处理器 */
-	TObjectPtr<UHotUpdatePackagingCallbackHandler> CallbackHandler;
 
 	/** 是否正在打包 */
 	bool bIsPackaging;

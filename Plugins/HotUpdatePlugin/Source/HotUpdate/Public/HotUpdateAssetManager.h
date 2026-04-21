@@ -38,13 +38,4 @@ public:
 		TArray<int32>* OutOverrideChunkList = nullptr) const override;
 	//~End of UAssetManager interface
 #endif
-
-#if WITH_EDITOR
-private:
-	static void CollectDependenciesRecursive(
-		const FString& PackagePath,
-		IAssetRegistry* AssetRegistry,
-		TSet<FString>& Visited,
-		int32 MaxDepth);
-#endif
 };

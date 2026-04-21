@@ -46,4 +46,12 @@ public:
 	 * @return 是否转换成功
 	 */
 	static bool HexToBytes(const FString& HexString, TArray<uint8>& OutBytes);
+
+	/**
+	 * 判断资产路径是否属于引擎（应归入首包）
+	 * 通过将包名转换为全路径，检查是否包含 /Engine/
+	 * @param PackagePath 资产路径（如 /Engine/EngineMaterials/DefaultMaterial）
+	 * @return true 如果是引擎资源
+	 */
+	static bool IsEngineAsset(const FString& PackagePath);
 };

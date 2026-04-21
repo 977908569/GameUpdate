@@ -65,7 +65,7 @@ struct HOTUPDATEEDITOR_API FHotUpdateBaseVersionBuildResult
 	FString ErrorMessage;
 
 	FHotUpdateBaseVersionBuildResult()
-		: bSuccess(false)
+		: bSuccess(false), Platform(EHotUpdatePlatform::Windows)
 	{
 	}
 };
@@ -294,4 +294,7 @@ private:
 
 	/// 缓存的 Chunk 定义列表，由 PreComputeChunkMapping 填充
 	TArray<FHotUpdateChunkDefinition> CachedChunkDefinitions;
+
+	/// 缓存的 Chunk0 资源集合（白名单+依赖），由 PreComputeChunkMapping 填充
+	TSet<FString> CachedChunk0Packages;
 };

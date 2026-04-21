@@ -5,6 +5,7 @@
 #include "HAL/PlatformFileManager.h"
 #include "HAL/FileManager.h"
 #include "Misc/SecureHash.h"
+#include "Misc/PackageName.h"
 
 FString UHotUpdateFileUtils::CalculateFileHash(const FString& FilePath)
 {
@@ -120,4 +121,20 @@ bool UHotUpdateFileUtils::HexToBytes(const FString& HexString, TArray<uint8>& Ou
 	}
 
 	return true;
+}
+
+bool UHotUpdateFileUtils::IsEngineAsset(const FString& PackagePath)
+{
+	// 项目资产不归入引擎
+	if (PackagePath.StartsWith(TEXT("/Game/")))
+	{
+		return false;
+	}
+
+	// 转换为磁盘全路径，判断是否在 Engine 目录下
+	FString Filename = FPackageName::LongPackageNameToFilename(PackagePath);
+	FString FullPath = IFileManager::Get().ConvertToAbsolutePathForExternalAppForWrite(*Filename);
+
+	// 全路径包含 /Engine/ 则为引擎资源
+	return FullPath.Contains(TEXT("/Engine/"));
 }

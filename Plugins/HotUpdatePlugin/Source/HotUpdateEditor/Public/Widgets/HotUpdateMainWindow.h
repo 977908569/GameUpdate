@@ -41,12 +41,6 @@ public:
 	/** 设置初始要显示的 Tab */
 	void SetInitialTab(int32 TabIndex);
 
-	/** 设置要打包的 uasset 文件路径（转发给 CustomPackagingPanel） */
-	void SetUassetFilePaths(const TArray<FString>& InPaths);
-
-	/** 设置要打包的非资产文件路径（转发给 CustomPackagingPanel） */
-	void SetNonAssetFilePaths(const TArray<FString>& InPaths);
-
 	/** 创建默认标签布局 */
 	static TSharedRef<FTabManager::FLayout> CreateDefaultLayout();
 
@@ -91,10 +85,4 @@ private:
 
 	/** Pak 查看器面板 */
 	TSharedPtr<SHotUpdatePakViewerPanel> PakViewerPanel;
-
-	/** 缓存的 uasset 文件路径（在 CustomPackagingPanel 创建前暂存） */
-	TArray<FString> CachedUassetFilePaths;
-
-	/** 缓存的非资产文件路径 */
-	TArray<FString> CachedNonAssetFilePaths;
 };

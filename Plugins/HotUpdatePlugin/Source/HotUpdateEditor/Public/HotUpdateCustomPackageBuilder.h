@@ -39,11 +39,9 @@ public:
 	FHotUpdatePackageProgress GetCurrentProgress() const;
 
 	/** 进度委托 */
-	UPROPERTY(BlueprintAssignable, Category = "HotUpdate|CustomPackage")
 	FOnPackageProgressDelegate OnProgress;
 
 	/** 完成委托 */
-	UPROPERTY(BlueprintAssignable, Category = "HotUpdate|CustomPackage")
 	FOnCustomPackageCompleteDelegate OnComplete;
 
 private:

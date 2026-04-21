@@ -63,6 +63,7 @@ void SHotUpdateBaseVersionPanel::Construct(const FArguments& InArgs)
 
 	// 创建构建器
 	Builder = NewObject<UHotUpdateBaseVersionBuilder>();
+	Builder->AddToRoot();
 	Builder->OnBuildProgress.AddSP(this, &SHotUpdateBaseVersionPanel::OnBuildProgress);
 	Builder->OnBuildComplete.AddSP(this, &SHotUpdateBaseVersionPanel::OnBuildComplete);
 
@@ -134,6 +135,17 @@ void SHotUpdateBaseVersionPanel::Construct(const FArguments& InArgs)
 			]
 		]
 	];
+}
+
+SHotUpdateBaseVersionPanel::~SHotUpdateBaseVersionPanel()
+{
+	if (Builder)
+	{
+		Builder->OnBuildProgress.RemoveAll(this);
+		Builder->OnBuildComplete.RemoveAll(this);
+		Builder->RemoveFromRoot();
+		Builder = nullptr;
+	}
 }
 
 TSharedRef<SWidget> SHotUpdateBaseVersionPanel::CreateConfigSection()
@@ -451,44 +463,38 @@ bool SHotUpdateBaseVersionPanel::CanBuild() const
 
 void SHotUpdateBaseVersionPanel::OnBuildProgress(const FHotUpdateBaseVersionBuildProgress& Progress)
 {
-	AsyncTask(ENamedThreads::GameThread, [this, Progress]()
-	{
-		FString StatusText = FString::Printf(TEXT("%s - %s"),
-			*Progress.CurrentStage, *Progress.StatusMessage);
-		StatusTextBlock->SetText(FText::FromString(StatusText));
-		ProgressBar->SetPercent(Progress.ProgressPercent);
-	});
+	FString StatusText = FString::Printf(TEXT("%s - %s"),
+		*Progress.CurrentStage, *Progress.StatusMessage);
+	StatusTextBlock->SetText(FText::FromString(StatusText));
+	ProgressBar->SetPercent(Progress.ProgressPercent);
 }
 
 void SHotUpdateBaseVersionPanel::OnBuildComplete(const FHotUpdateBaseVersionBuildResult& Result)
 {
 	bIsBuilding = false;
 
-	AsyncTask(ENamedThreads::GameThread, [this, Result]()
+	if (Result.bSuccess)
 	{
-		if (Result.bSuccess)
-		{
-			FString SuccessMsg = FString::Printf(
-				TEXT("构建成功!\n版本: %s\n输出: %s"),
-				*Result.VersionString,
-				*Result.ExecutablePath
-			);
-			StatusTextBlock->SetText(FText::FromString(SuccessMsg));
-			StatusTextBlock->SetColorAndOpacity(FHotUpdateEditorStyle::GetSuccessColor());
-			ProgressBar->SetPercent(1.0f);
+		FString SuccessMsg = FString::Printf(
+			TEXT("构建成功!\n版本: %s\n输出: %s"),
+			*Result.VersionString,
+			*Result.ExecutablePath
+		);
+		StatusTextBlock->SetText(FText::FromString(SuccessMsg));
+		StatusTextBlock->SetColorAndOpacity(FHotUpdateEditorStyle::GetSuccessColor());
+		ProgressBar->SetPercent(1.0f);
 
-			FHotUpdateNotificationHelper::ShowNotification(FText::FromString(FString::Printf(TEXT("基础版本构建成功: %s"), *Result.VersionString)),
-				SNotificationItem::CS_Success);
-		}
-		else
-		{
-			StatusTextBlock->SetText(FText::FromString(Result.ErrorMessage));
-			StatusTextBlock->SetColorAndOpacity(FHotUpdateEditorStyle::GetErrorColor());
-			ProgressBar->SetPercent(0.0f);
+		FHotUpdateNotificationHelper::ShowNotification(FText::FromString(FString::Printf(TEXT("基础版本构建成功: %s"), *Result.VersionString)),
+			SNotificationItem::CS_Success);
+	}
+	else
+	{
+		StatusTextBlock->SetText(FText::FromString(Result.ErrorMessage));
+		StatusTextBlock->SetColorAndOpacity(FHotUpdateEditorStyle::GetErrorColor());
+		ProgressBar->SetPercent(0.0f);
 
-			FHotUpdateNotificationHelper::ShowNotification(FText::FromString(Result.ErrorMessage), SNotificationItem::CS_Fail);
-		}
-	});
+		FHotUpdateNotificationHelper::ShowNotification(FText::FromString(Result.ErrorMessage), SNotificationItem::CS_Fail);
+	}
 }
 
 FReply SHotUpdateBaseVersionPanel::OnBrowseOutputDirectory()
@@ -632,113 +638,171 @@ TSharedRef<SWidget> SHotUpdateBaseVersionPanel::CreateMinimalPackageSettings()
 			.AutoHeight()
 			.Padding(0, 2)
 			[
-				SNew(SCheckBox)
+				SAssignNew(EnableMinimalPackageCheckBox, SCheckBox)
 				.IsChecked_Lambda([this]() {
-					return BuildConfig.MinimalPackageConfig.bEnableMinimalPackage
-						? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+					return BuildConfig.MinimalPackageConfig.bEnableMinimalPackage ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 				})
 				.OnCheckStateChanged_Lambda([this](ECheckBoxState NewState) {
-					BuildConfig.MinimalPackageConfig.bEnableMinimalPackage =
-						(NewState == ECheckBoxState::Checked);
+					BuildConfig.MinimalPackageConfig.bEnableMinimalPackage = NewState == ECheckBoxState::Checked;
 				})
 				[
 					SNew(STextBlock)
 					.Text(LOCTEXT("EnableMinimalPackage", "启用最小包模式"))
 				]
 			]
-			// 依赖策略
+			// 条件可见的子配置项
 			+ SVerticalBox::Slot()
 			.AutoHeight()
-			.Padding(0, 2)
 			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
+				SNew(SBorder)
+				.Visibility(this, &SHotUpdateBaseVersionPanel::GetMinimalPackageSettingsVisibility)
+				.BorderBackgroundColor(FLinearColor::Transparent)
+				.Padding(0)
 				[
-					SNew(SBox)
-					.WidthOverride(90)
+					SNew(SVerticalBox)
+					// 依赖策略
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0, 2)
 					[
-						SNew(STextBlock)
-						.Text(LOCTEXT("DependencyStrategyLabel", "依赖策略:"))
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						[
+							SNew(SBox)
+							.WidthOverride(90)
+							[
+								SNew(STextBlock)
+								.Text(LOCTEXT("DependencyStrategyLabel", "依赖策略:"))
+							]
+						]
+						+ SHorizontalBox::Slot()
+						.FillWidth(1.0f)
+						.Padding(8, 0)
+						[
+							SAssignNew(DependencyStrategyComboBox, SComboBox<TSharedPtr<EHotUpdateDependencyStrategy>>)
+							.OptionsSource(&DependencyStrategyOptions)
+							.OnGenerateWidget(this, &SHotUpdateBaseVersionPanel::GenerateDependencyStrategyComboBoxItem)
+							.OnSelectionChanged(this, &SHotUpdateBaseVersionPanel::OnDependencyStrategySelected)
+							.InitiallySelectedItem(SelectedDependencyStrategy)
+							[
+								SNew(STextBlock)
+								.Text(this, &SHotUpdateBaseVersionPanel::GetSelectedDependencyStrategyText)
+							]
+						]
 					]
-				]
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.0f)
-				.Padding(8, 0)
-				[
-					SAssignNew(DependencyStrategyComboBox, SComboBox<TSharedPtr<EHotUpdateDependencyStrategy>>)
-					.OptionsSource(&DependencyStrategyOptions)
-					.OnGenerateWidget(this, &SHotUpdateBaseVersionPanel::GenerateDependencyStrategyComboBoxItem)
-					.OnSelectionChanged(this, &SHotUpdateBaseVersionPanel::OnDependencyStrategySelected)
-					.InitiallySelectedItem(SelectedDependencyStrategy)
+					// 分包策略
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0, 2)
 					[
-						SNew(STextBlock)
-						.Text(this, &SHotUpdateBaseVersionPanel::GetSelectedDependencyStrategyText)
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						[
+							SNew(SBox)
+							.WidthOverride(90)
+							[
+								SNew(STextBlock)
+								.Text(LOCTEXT("PatchChunkStrategyLabel", "分包策略:"))
+							]
+						]
+						+ SHorizontalBox::Slot()
+						.FillWidth(1.0f)
+						.Padding(8, 0)
+						[
+							SAssignNew(PatchChunkStrategyComboBox, SComboBox<TSharedPtr<EHotUpdateChunkStrategy>>)
+							.OptionsSource(&PatchChunkStrategyOptions)
+							.OnGenerateWidget(this, &SHotUpdateBaseVersionPanel::GeneratePatchChunkStrategyComboBoxItem)
+							.OnSelectionChanged(this, &SHotUpdateBaseVersionPanel::OnPatchChunkStrategySelected)
+							[
+								SNew(STextBlock)
+								.Text(this, &SHotUpdateBaseVersionPanel::GetSelectedPatchChunkStrategyText)
+							]
+						]
 					]
-				]
-			]
-			// 分包策略
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(0, 2)
-			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
-				[
-					SNew(SBox)
-					.WidthOverride(90)
+					// 按大小分包的最大 Chunk 大小
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0, 2)
 					[
-						SNew(STextBlock)
-						.Text(LOCTEXT("PatchChunkStrategyLabel", "分包策略:"))
+						SNew(SHorizontalBox)
+						.Visibility_Lambda([this]() {
+							return SelectedPatchChunkStrategy.IsValid() && *SelectedPatchChunkStrategy == EHotUpdateChunkStrategy::Size
+								? EVisibility::Visible : EVisibility::Collapsed;
+						})
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						[
+							SNew(SBox)
+							.WidthOverride(90)
+							[
+								SNew(STextBlock)
+								.Text(LOCTEXT("MaxChunkSizeLabel", "最大大小(MB):"))
+							]
+						]
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.Padding(8, 0)
+						.VAlign(VAlign_Center)
+						[
+							SAssignNew(MaxChunkSizeSpinBox, SSpinBox<float>)
+							.Value(this, &SHotUpdateBaseVersionPanel::GetMaxChunkSizeValue)
+							.MinValue(1)
+							.MaxValue(2048)
+							.MinSliderValue(1)
+							.MaxSliderValue(512)
+							.SliderExponent(1.0f)
+							.OnValueChanged_Lambda([this](float NewValue) {
+								BuildConfig.MinimalPackageConfig.PatchChunkConfig.SizeBasedConfig.MaxChunkSizeMB = FMath::RoundToInt(NewValue);
+							})
+						]
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.Padding(8, 0)
+						.VAlign(VAlign_Center)
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("MaxChunkSizeHint", "每个Chunk的最大大小（MB）"))
+							.ColorAndOpacity(FLinearColor::Gray)
+							.Font(FAppStyle::GetFontStyle("SmallFont"))
+						]
 					]
-				]
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.0f)
-				.Padding(8, 0)
-				[
-					SAssignNew(PatchChunkStrategyComboBox, SComboBox<TSharedPtr<EHotUpdateChunkStrategy>>)
-					.OptionsSource(&PatchChunkStrategyOptions)
-					.OnGenerateWidget(this, &SHotUpdateBaseVersionPanel::GeneratePatchChunkStrategyComboBoxItem)
-					.OnSelectionChanged(this, &SHotUpdateBaseVersionPanel::OnPatchChunkStrategySelected)
+					// 必须包含的目录
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(0, 4)
 					[
-						SNew(STextBlock)
-						.Text(this, &SHotUpdateBaseVersionPanel::GetSelectedPatchChunkStrategyText)
+						SNew(SVerticalBox)
+						+ SVerticalBox::Slot()
+						.AutoHeight()
+						[
+							SNew(STextBlock)
+							.Text(LOCTEXT("RequiredDirectories", "必须包含的目录:"))
+							.Font(FAppStyle::GetFontStyle("NormalFontBold"))
+						]
+						+ SVerticalBox::Slot()
+						.AutoHeight()
+						.Padding(0, 4)
+						[
+							SNew(SButton)
+							.Text(LOCTEXT("AddWhitelistDirectory", "添加目录"))
+							.ButtonStyle(FAppStyle::Get(), "FlatButton")
+							.OnClicked(this, &SHotUpdateBaseVersionPanel::OnAddWhitelistDirectoryClicked)
+						]
+						+ SVerticalBox::Slot()
+						.FillHeight(1.0f)
+						.MaxHeight(100.0f)
+						[
+							SAssignNew(WhitelistDirectoryListView, SListView<TSharedPtr<FDirectoryPath>>)
+							.ListItemsSource(&WhitelistDirectoryItems)
+							.OnGenerateRow(this, &SHotUpdateBaseVersionPanel::GenerateWhitelistDirectoryRow)
+							.SelectionMode(ESelectionMode::Single)
+						]
 					]
-				]
-			]
-			// 必须包含的目录
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(0, 4)
-			[
-				SNew(SVerticalBox)
-				+ SVerticalBox::Slot()
-				.AutoHeight()
-				[
-					SNew(STextBlock)
-					.Text(LOCTEXT("RequiredDirectories", "必须包含的目录:"))
-					.Font(FAppStyle::GetFontStyle("NormalFontBold"))
-				]
-				+ SVerticalBox::Slot()
-				.AutoHeight()
-				.Padding(0, 4)
-				[
-					SNew(SButton)
-					.Text(LOCTEXT("AddWhitelistDirectory", "添加目录"))
-					.ButtonStyle(FAppStyle::Get(), "FlatButton")
-					.OnClicked(this, &SHotUpdateBaseVersionPanel::OnAddWhitelistDirectoryClicked)
-				]
-				+ SVerticalBox::Slot()
-				.FillHeight(1.0f)
-				.MaxHeight(100.0f)
-				[
-					SAssignNew(WhitelistDirectoryListView, SListView<TSharedPtr<FDirectoryPath>>)
-					.ListItemsSource(&WhitelistDirectoryItems)
-					.OnGenerateRow(this, &SHotUpdateBaseVersionPanel::GenerateWhitelistDirectoryRow)
-					.SelectionMode(ESelectionMode::Single)
 				]
 			]
 		];
@@ -768,8 +832,7 @@ TSharedRef<ITableRow> SHotUpdateBaseVersionPanel::GenerateWhitelistDirectoryRow(
 
 FReply SHotUpdateBaseVersionPanel::OnAddWhitelistDirectoryClicked()
 {
-	IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get();
-	if (DesktopPlatform)
+	if (IDesktopPlatform* DesktopPlatform = FDesktopPlatformModule::Get())
 	{
 		TSharedPtr<SWindow> ParentWindowPtr = ParentWindow.IsValid() ? ParentWindow : FSlateApplication::Get().FindBestParentWindowForDialogs(nullptr);
 		void* ParentWindowHandle = ParentWindowPtr.IsValid() ? ParentWindowPtr->GetNativeWindow()->GetOSWindowHandle() : nullptr;
@@ -901,6 +964,11 @@ FText SHotUpdateBaseVersionPanel::GetSelectedPatchChunkStrategyText() const
 	return LOCTEXT("ChunkStrategyNone", "不分包（全部一个Chunk）");
 }
 
+float SHotUpdateBaseVersionPanel::GetMaxChunkSizeValue() const
+{
+	return static_cast<float>(BuildConfig.MinimalPackageConfig.PatchChunkConfig.SizeBasedConfig.MaxChunkSizeMB);
+}
+
 TSharedRef<SWidget> SHotUpdateBaseVersionPanel::GenerateAndroidTextureFormatComboBoxItem(TSharedPtr<EHotUpdateAndroidTextureFormat> InItem)
 {
 	FText FormatText;
@@ -960,6 +1028,11 @@ EVisibility SHotUpdateBaseVersionPanel::GetAndroidTextureFormatVisibility() cons
 		return EVisibility::Visible;
 	}
 	return EVisibility::Collapsed;
+}
+
+EVisibility SHotUpdateBaseVersionPanel::GetMinimalPackageSettingsVisibility() const
+{
+	return BuildConfig.MinimalPackageConfig.bEnableMinimalPackage ? EVisibility::Visible : EVisibility::Collapsed;
 }
 
 #undef LOCTEXT_NAMESPACE

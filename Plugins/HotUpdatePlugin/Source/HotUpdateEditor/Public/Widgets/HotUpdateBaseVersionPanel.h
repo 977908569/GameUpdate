@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/Input/SComboBox.h"
+#include "Widgets/Input/SSpinBox.h"
 #include "Widgets/Views/SListView.h"
 #include "Widgets/Views/STableRow.h"
 #include "HotUpdateEditorTypes.h"
@@ -23,6 +24,7 @@ public:
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
+	~SHotUpdateBaseVersionPanel();
 
 private:
 	/** 创建配置区域 */
@@ -65,6 +67,9 @@ private:
 	FText GetSelectedAndroidTextureFormatText() const;
 	EVisibility GetAndroidTextureFormatVisibility() const;
 
+	/** 最小包配置项可见性（启用最小包时才显示子配置） */
+	EVisibility GetMinimalPackageSettingsVisibility() const;
+
 	/** 创建最小包配置区域 */
 	TSharedRef<SWidget> CreateMinimalPackageSettings();
 
@@ -80,6 +85,7 @@ private:
 	TSharedRef<SWidget> GeneratePatchChunkStrategyComboBoxItem(TSharedPtr<EHotUpdateChunkStrategy> InItem);
 	void OnPatchChunkStrategySelected(TSharedPtr<EHotUpdateChunkStrategy> InItem, ESelectInfo::Type SelectInfo);
 	FText GetSelectedPatchChunkStrategyText() const;
+	float GetMaxChunkSizeValue() const;
 
 private:
 	/** 父窗口 */
@@ -92,7 +98,7 @@ private:
 	FHotUpdateBaseVersionBuildConfig BuildConfig;
 
 	/** 是否正在构建 */
-	bool bIsBuilding;
+	bool bIsBuilding = false;
 
 	// UI 控件
 	TSharedPtr<SEditableText> VersionTextBox;
@@ -143,4 +149,7 @@ private:
 
 	/** 当前选择的分包策略 */
 	TSharedPtr<EHotUpdateChunkStrategy> SelectedPatchChunkStrategy;
+
+	/** 按大小分包的最大 Chunk 大小输入框 */
+	TSharedPtr<SSpinBox<float>> MaxChunkSizeSpinBox;
 };

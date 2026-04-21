@@ -12,7 +12,6 @@
 #include "HotUpdateEditorTypes.h"
 
 class UHotUpdateCustomPackageBuilder;
-class UHotUpdatePackagingCallbackHandler;
 class SProgressBar;
 
 /**
@@ -27,18 +26,10 @@ public:
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs);
-
-	/** 清理 Root 引用 */
-	void CleanupRootReferences();
-
-	/** 设置要打包的 uasset 文件路径 */
-	void SetUassetFilePaths(const TArray<FString>& InPaths);
-
-	/** 设置要打包的非资产文件路径 */
-	void SetNonAssetFilePaths(const TArray<FString>& InPaths);
+	~SHotUpdateCustomPackagingPanel();
 
 	/** 打包完成回调 */
-	void OnPackagingComplete(const FHotUpdatePackageResult& Result);
+	void OnPackagingComplete(const FHotUpdateCustomPackageResult& Result);
 
 	/** 打包进度回调 */
 	void OnPackagingProgress(const FHotUpdatePackageProgress& Progress);
@@ -119,9 +110,6 @@ private:
 
 	/** 更新包构建器 */
 	TObjectPtr<UHotUpdateCustomPackageBuilder> CustomPackageBuilder;
-
-	/** 回调处理器 */
-	TObjectPtr<UHotUpdatePackagingCallbackHandler> CallbackHandler;
 
 	/** 是否正在打包 */
 	bool bIsPackaging;

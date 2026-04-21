@@ -6,12 +6,7 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogHotUpdateAssetFilter, Log, All);
 
-void FHotUpdateAssetFilter::FilterAssets(
-	const TArray<FString>& InAssetPaths,
-	const FHotUpdateMinimalPackageConfig& Config,
-	IAssetRegistry* AssetRegistry,
-	TArray<FString>& OutWhitelistAssets,
-	TArray<FString>& OutExcludedAssets)
+void FHotUpdateAssetFilter::FilterAssets(const TArray<FString>& InAssetPaths, const FHotUpdateMinimalPackageConfig& Config, IAssetRegistry* AssetRegistry, TArray<FString>& OutWhitelistAssets, TArray<FString>& OutExcludedAssets)
 {
 	TSet<FString> WhitelistSet;
 
@@ -28,62 +23,31 @@ void FHotUpdateAssetFilter::FilterAssets(
 		UE_LOG(LogHotUpdateAssetFilter, Log, TEXT("必须包含的目录收集资产: %d"), WhitelistDirAssets.Num());
 	}
 
-	// 2. 应用白名单规则
-	for (const FHotUpdateAssetFilterRule& Rule : Config.WhitelistAssets)
-	{
-		if (!Rule.IsValid())
-		{
-			continue;
-		}
-
-		for (const FString& AssetPath : InAssetPaths)
-		{
-			if (MatchesFilterRule(AssetPath, Rule, AssetRegistry))
-			{
-				WhitelistSet.Add(AssetPath);
-			}
-		}
-	}
-	UE_LOG(LogHotUpdateAssetFilter, Log, TEXT("白名单规则应用后，白名单资产数: %d"), WhitelistSet.Num());
-
-	// 3. 根据依赖策略收集白名单资产的依赖
+	// 2. 根据依赖策略收集白名单资产的依赖
 	TSet<FString> FinalWhitelist = WhitelistSet;
 	if (Config.DependencyStrategy != EHotUpdateDependencyStrategy::None && WhitelistSet.Num() > 0)
 	{
 		for (const FString& Asset : WhitelistSet)
 		{
 			TSet<FString> Dependencies;
-			GetDependencies(Asset, AssetRegistry, Config.DependencyStrategy, Config.MaxDependencyDepth, Dependencies);
+			GetDependencies(Asset, AssetRegistry, Config.DependencyStrategy, 0, Dependencies);
 			FinalWhitelist.Append(Dependencies);
 		}
 		UE_LOG(LogHotUpdateAssetFilter, Log, TEXT("依赖收集后，白名单资产数: %d (添加依赖数: %d)"), FinalWhitelist.Num(), FinalWhitelist.Num() - WhitelistSet.Num());
 	}
 
-	// 4. 过滤非资产路径（保留 /Game/、/Engine/、插件路径，排除 /Script/）
-	TSet<FString> FilteredWhitelist;
-	for (const FString& Asset : FinalWhitelist)
-	{
-		if (Asset.StartsWith(TEXT("/Game/")) || Asset.StartsWith(TEXT("/Engine/")) ||
-			(Asset.StartsWith(TEXT("/")) && !Asset.StartsWith(TEXT("/Script/"))))
-		{
-			FilteredWhitelist.Add(Asset);
-		}
-	}
-
-	// 5. 输出结果
-	OutWhitelistAssets = FilteredWhitelist.Array();
+	// 3. 输出结果
+	OutWhitelistAssets = FinalWhitelist.Array();
 
 	for (const FString& Asset : InAssetPaths)
 	{
-		if (!FilteredWhitelist.Contains(Asset))
+		if (!FinalWhitelist.Contains(Asset))
 		{
 			OutExcludedAssets.Add(Asset);
 		}
 	}
 
-	UE_LOG(LogHotUpdateAssetFilter, Log,
-		TEXT("过滤完成: 白名单资产 %d 个, 排除资产 %d 个"),
-		OutWhitelistAssets.Num(), OutExcludedAssets.Num());
+	UE_LOG(LogHotUpdateAssetFilter, Log, TEXT("过滤完成: 白名单资产 %d 个, 排除资产 %d 个"), OutWhitelistAssets.Num(), OutExcludedAssets.Num());
 }
 
 bool FHotUpdateAssetFilter::MatchesFilterRule(
@@ -193,9 +157,7 @@ bool FHotUpdateAssetFilter::IsInDirectories(
 	return false;
 }
 
-TArray<FString> FHotUpdateAssetFilter::CollectAssetsFromDirectories(
-	const TArray<FDirectoryPath>& Directories,
-	IAssetRegistry* AssetRegistry)
+TArray<FString> FHotUpdateAssetFilter::CollectAssetsFromDirectories(const TArray<FDirectoryPath>& Directories, const IAssetRegistry* AssetRegistry)
 {
 	TArray<FString> Result;
 

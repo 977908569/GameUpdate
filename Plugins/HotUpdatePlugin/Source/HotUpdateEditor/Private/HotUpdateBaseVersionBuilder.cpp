@@ -104,6 +104,8 @@ FString UHotUpdateBaseVersionBuilder::GetDefaultOutputDirectory()
 
 void UHotUpdateBaseVersionBuilder::BuildBaseVersion(const FHotUpdateBaseVersionBuildConfig& Config)
 {
+	CurrentConfig = Config;
+	
 	// 检查是否有正在运行的构建任务
 	// 如果 bIsBuilding 为 true 但 BuildTask 已经完成，说明之前的构建异常终止，需要重置状态
 	if (bIsBuilding)
@@ -149,43 +151,37 @@ void UHotUpdateBaseVersionBuilder::BuildBaseVersion(const FHotUpdateBaseVersionB
 
 	bIsBuilding = true;
 	bIsCancelled = false;
-
-	// 在游戏线程上深拷贝配置，确保字符串/数组数据的内存对后台线程可见
-	// 直接赋值 CurrentConfig 后在后台线程读取可能导致 FString 内部缓冲区的线程可见性问题
-	FHotUpdateBaseVersionBuildConfig SafeConfig = Config;
-
-	// 在游戏线程预收集资源数据，避免后台线程访问 AssetRegistry
-	if (SafeConfig.MinimalPackageConfig.bEnableMinimalPackage)
+	
+	// 在游戏线程预收集资源数据
+	if (CurrentConfig.MinimalPackageConfig.bEnableMinimalPackage)
 	{
 		UE_LOG(LogHotUpdateEditor, Log, TEXT("在游戏线程预收集最小包资源数据..."));
-
-		TArray<FString> AllAssetPaths = CollectAllAssetPaths();
-
+		
 		FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
 		IAssetRegistry* AssetRegistry = &AssetRegistryModule.Get();
 
+		TArray<FString> AllAssetPaths = CollectAllAssetPaths();
+		
 		TArray<FString> PatchAssetPaths;
 		ApplyMinimalPackageFilter(AllAssetPaths, PatchAssetPaths, AssetRegistry);
 
-		SafeConfig.PreCollectedPatchAssetPaths = PatchAssetPaths;
+		//需要分出的资源
+		CurrentConfig.PreCollectedPatchAssetPaths = PatchAssetPaths;
 
 		UE_LOG(LogHotUpdateEditor, Log, TEXT("预收集完成，%d 个热更资产"), PatchAssetPaths.Num());
 	}
 
-	if (SafeConfig.bSynchronousMode)
+	if (CurrentConfig.bSynchronousMode)
 	{
-		CurrentConfig = SafeConfig;
 		ExecuteBuildInternal(true);
 	}
 	else
 	{
 		// 在后台线程执行构建（编辑器模式）
-		// 通过 lambda 按值捕获 SafeConfig，确保后台线程使用独立的数据副本
-		BuildTask = Async(EAsyncExecution::Thread, [WeakThis = TWeakObjectPtr<UHotUpdateBaseVersionBuilder>(this), SafeConfig]()
+		BuildTask = Async(EAsyncExecution::Thread, [WeakThis = TWeakObjectPtr<UHotUpdateBaseVersionBuilder>(this)]()
 		{
 			if (!WeakThis.IsValid()) return;
 			auto* Self = WeakThis.Get();
-			Self->CurrentConfig = SafeConfig;
 			Self->ExecuteBuildInternal(false);
 		});
 	}
@@ -206,8 +202,7 @@ void UHotUpdateBaseVersionBuilder::ExecuteBuildInternal(bool bSynchronous)
 	Result.VersionString = CurrentConfig.VersionString;
 	Result.Platform = CurrentConfig.Platform;
 
-	UE_LOG(LogHotUpdateEditor, Log, TEXT("开始构建基础版本（%s）: %s, 平台: %s"),
-		bSynchronous ? TEXT("同步") : TEXT("异步"),
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("开始构建基础版本（%s）: %s, 平台: %s"), bSynchronous ? TEXT("同步") : TEXT("异步"),
 		*CurrentConfig.VersionString, *HotUpdateUtils::GetPlatformDirectoryName(CurrentConfig.Platform));
 
 	// 1. 确定输出目录
@@ -551,6 +546,18 @@ void UHotUpdateBaseVersionBuilder::WriteMinimalPackageConfig()
 		JsonObj->SetObjectField(TEXT("ChunkMapping"), MappingObj);
 	}
 
+	// 写入 Chunk0 资源集合（白名单+依赖）
+	if (CachedChunk0Packages.Num() > 0)
+	{
+		TArray<TSharedPtr<FJsonValue>> Chunk0Array;
+		for (const FString& Package : CachedChunk0Packages)
+		{
+			Chunk0Array.Add(MakeShareable(new FJsonValueString(Package)));
+		}
+		JsonObj->SetArrayField(TEXT("Chunk0Packages"), Chunk0Array);
+		UE_LOG(LogHotUpdateEditor, Log, TEXT("写入 Chunk0Packages: %d 个"), CachedChunk0Packages.Num());
+	}
+
 	FString JsonStr;
 	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonStr);
 	FJsonSerializer::Serialize(JsonObj.ToSharedRef(), Writer);
@@ -571,6 +578,53 @@ void UHotUpdateBaseVersionBuilder::PreComputeChunkMapping()
 	if (!CurrentConfig.MinimalPackageConfig.bEnableMinimalPackage)
 		return;
 
+	// 清空缓存
+	CachedChunkMapping.Empty();
+	CachedChunkDefinitions.Empty();
+	CachedChunk0Packages.Empty();
+
+	// 收集白名单资源及其依赖（Chunk0 资源集合）
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+	IAssetRegistry* AssetRegistry = &AssetRegistryModule.Get();
+
+	if (AssetRegistry->IsLoadingAssets())
+	{
+		AssetRegistry->SearchAllAssets(true);
+		while (AssetRegistry->IsLoadingAssets())
+		{
+			FPlatformProcess::Sleep(0.1f);
+		}
+	}
+
+	// 收集白名单目录下的资产及其一级硬引用依赖
+	for (const FDirectoryPath& Dir : CurrentConfig.MinimalPackageConfig.WhitelistDirectories)
+	{
+		FString ContentDir = FPackageName::LongPackageNameToFilename(Dir.Path);
+		if (!ContentDir.EndsWith(TEXT("/")))
+		{
+			ContentDir += TEXT("/");
+		}
+
+		TArray<FString> PackageFiles;
+		FPackageName::FindPackagesInDirectory(PackageFiles, ContentDir);
+
+		for (const FString& PackageFile : PackageFiles)
+		{
+			FString PackageName = FPackageName::FilenameToLongPackageName(PackageFile);
+			CachedChunk0Packages.Add(PackageName);
+
+			TArray<FAssetIdentifier> Dependencies;
+			AssetRegistry->GetDependencies(FAssetIdentifier(*PackageName),Dependencies, UE::AssetRegistry::EDependencyCategory::Package);
+
+			for (const FAssetIdentifier& Dep : Dependencies)
+			{
+				CachedChunk0Packages.Add(Dep.PackageName.ToString());
+			}
+		}
+	}
+
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("收集 Chunk0 资源集合: %d 个（白名单+依赖）"), CachedChunk0Packages.Num());
+
 	// 如果策略为 None，保持当前行为（全部 -> Chunk 11）
 	if (CurrentConfig.MinimalPackageConfig.PatchChunkStrategy == EHotUpdateChunkStrategy::None)
 	{
@@ -580,8 +634,7 @@ void UHotUpdateBaseVersionBuilder::PreComputeChunkMapping()
 		return;
 	}
 
-	UE_LOG(LogHotUpdateEditor, Log, TEXT("开始预计算 Chunk 分配，策略: %s"),
-		*UEnum::GetValueAsString(CurrentConfig.MinimalPackageConfig.PatchChunkStrategy));
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("开始预计算 Chunk 分配，策略: %s"), *UEnum::GetValueAsString(CurrentConfig.MinimalPackageConfig.PatchChunkStrategy));
 
 	TArray<FString> PatchAssetPaths = CurrentConfig.PreCollectedPatchAssetPaths;
 
@@ -595,11 +648,9 @@ void UHotUpdateBaseVersionBuilder::PreComputeChunkMapping()
 
 	// 4. 收集热更资产的磁盘路径映射（用于按大小分包等策略）
 	TMap<FString, FString> AssetDiskPaths;
-	for (const FString& AssetPath : PatchAssetPaths)
-	{
+	for (const FString& AssetPath : PatchAssetPaths){
 		FString SourcePath = FHotUpdatePackageHelper::GetAssetSourcePath(AssetPath);
-		if (!SourcePath.IsEmpty() && FPaths::FileExists(*SourcePath))
-		{
+		if (!SourcePath.IsEmpty() && FPaths::FileExists(*SourcePath)){
 			AssetDiskPaths.Add(AssetPath, SourcePath);
 		}
 	}
@@ -1007,51 +1058,39 @@ bool UHotUpdateBaseVersionBuilder::BuildManifestJson(
 
 TArray<FString> UHotUpdateBaseVersionBuilder::CollectAllAssetPaths() const
 {
-	FHotUpdatePackagingSettingsResult SettingsResult =
-		FHotUpdatePackagingSettingsHelper::ParsePackagingSettings(true);
-
-	if (SettingsResult.Errors.Num() > 0)
-	{
-		UE_LOG(LogHotUpdateEditor, Error, TEXT("解析打包设置失败: %s"),
-			*FString::Join(SettingsResult.Errors, TEXT("\n")));
+	FHotUpdatePackagingSettingsResult SettingsResult = FHotUpdatePackagingSettingsHelper::ParsePackagingSettings(true);
+	if (SettingsResult.Errors.Num() > 0){
+		UE_LOG(LogHotUpdateEditor, Error, TEXT("解析打包设置失败: %s"), *FString::Join(SettingsResult.Errors, TEXT("\n")));
 	}
-
 	return SettingsResult.AssetPaths;
 }
 
-void UHotUpdateBaseVersionBuilder::ApplyMinimalPackageFilter(
-	TArray<FString>& InOutAssetPaths,
-	TArray<FString>& OutPatchAssets,
-	IAssetRegistry* AssetRegistry) const
+void UHotUpdateBaseVersionBuilder::ApplyMinimalPackageFilter(TArray<FString>& InOutAssetPaths, TArray<FString>& OutPatchAssets, IAssetRegistry* AssetRegistry) const
 {
-	if (!CurrentConfig.MinimalPackageConfig.bEnableMinimalPackage || InOutAssetPaths.Num() == 0)
+	if (!CurrentConfig.MinimalPackageConfig.bEnableMinimalPackage)
 	{
 		return;
 	}
 
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("启用最小包模式，开始过滤资产，输入资产数: %d"), InOutAssetPaths.Num());
 
+	if (InOutAssetPaths.Num() <= 0)
+	{
+		return;
+	}
+
 	TArray<FString> WhitelistAssets;
 	TArray<FString> ExcludedAssets;
 
-	FHotUpdateAssetFilter::FilterAssets(
-		InOutAssetPaths,
-		CurrentConfig.MinimalPackageConfig,
-		AssetRegistry,
-		WhitelistAssets,
-		ExcludedAssets);
+	FHotUpdateAssetFilter::FilterAssets(InOutAssetPaths, CurrentConfig.MinimalPackageConfig, AssetRegistry,WhitelistAssets,ExcludedAssets);
 
-	UE_LOG(LogHotUpdateEditor, Log,
-		TEXT("最小包过滤完成: 白名单资产 %d 个, 排除资产 %d 个"),
-		WhitelistAssets.Num(), ExcludedAssets.Num());
+	UE_LOG(LogHotUpdateEditor, Log,TEXT("最小包过滤完成: 白名单资产 %d 个, 排除资产 %d 个"), WhitelistAssets.Num(), ExcludedAssets.Num());
 
-	// 引擎资源始终保留在首包，不能被剥离
-	// 引擎默认材质等 /Engine/ 路径在运行时引擎初始化阶段就需要加载，
-	// 此时热更系统尚未就绪，无法从外部下载这些资源
+	// 引擎资源和引擎插件资源打入首包
 	int32 EngineAssetCount = 0;
 	for (int32 i = ExcludedAssets.Num() - 1; i >= 0; --i)
 	{
-		if (ExcludedAssets[i].StartsWith(TEXT("/Engine/")))
+		if (UHotUpdateFileUtils::IsEngineAsset(ExcludedAssets[i]))
 		{
 			WhitelistAssets.Add(ExcludedAssets[i]);
 			ExcludedAssets.RemoveAt(i);
@@ -1061,8 +1100,7 @@ void UHotUpdateBaseVersionBuilder::ApplyMinimalPackageFilter(
 
 	if (EngineAssetCount > 0)
 	{
-		UE_LOG(LogHotUpdateEditor, Log,
-			TEXT("从排除列表中回收 %d 个引擎资源到首包"), EngineAssetCount);
+		UE_LOG(LogHotUpdateEditor, Log, TEXT("从排除列表中回收 %d 个引擎/引擎插件资源到首包"), EngineAssetCount);
 	}
 
 	if (WhitelistAssets.Num() == 0)

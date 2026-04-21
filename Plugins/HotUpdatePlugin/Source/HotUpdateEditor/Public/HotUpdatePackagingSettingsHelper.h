@@ -24,12 +24,6 @@ struct HOTUPDATEEDITOR_API FHotUpdatePackagingSettingsResult
 	/// 永不Cook的目录
 	TArray<FString> NeverCookDirectories;
 
-	/// 是否Cook所有内容
-	bool bCookAll;
-
-	/// 是否只Cook地图
-	bool bCookMapsOnly;
-
 	/// 是否跳过编辑器内容
 	bool bSkipEditorContent;
 
@@ -40,9 +34,7 @@ struct HOTUPDATEEDITOR_API FHotUpdatePackagingSettingsResult
 	TArray<FString> Warnings;
 
 	FHotUpdatePackagingSettingsResult()
-		: bCookAll(false)
-		, bCookMapsOnly(false)
-		, bSkipEditorContent(true)
+		: bSkipEditorContent(true)
 	{}
 };
 

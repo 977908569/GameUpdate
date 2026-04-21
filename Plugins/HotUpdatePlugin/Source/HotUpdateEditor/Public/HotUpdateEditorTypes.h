@@ -243,10 +243,6 @@ struct HOTUPDATEEDITOR_API FHotUpdateMinimalPackageConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MinimalPackage")
 	bool bEnableMinimalPackage;
 
-	/// 必须包含的资源规则列表
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MinimalPackage|Whitelist")
-	TArray<FHotUpdateAssetFilterRule> WhitelistAssets;
-
 	/// 必须包含的目录列表
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MinimalPackage|Whitelist")
 	TArray<FDirectoryPath> WhitelistDirectories;
@@ -254,10 +250,6 @@ struct HOTUPDATEEDITOR_API FHotUpdateMinimalPackageConfig
 	/// 依赖处理策略
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MinimalPackage|Dependencies")
 	EHotUpdateDependencyStrategy DependencyStrategy;
-
-	/// 依赖深度限制（0 = 无限制）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MinimalPackage|Dependencies", meta = (ClampMin = "0"))
-	int32 MaxDependencyDepth;
 
 	/// 非首包资源的分包策略（None=全部一个Chunk，其他=按策略分包）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MinimalPackage|ChunkSplitting")
@@ -270,7 +262,6 @@ struct HOTUPDATEEDITOR_API FHotUpdateMinimalPackageConfig
 	FHotUpdateMinimalPackageConfig()
 		: bEnableMinimalPackage(false)
 		, DependencyStrategy(EHotUpdateDependencyStrategy::HardOnly)
-		, MaxDependencyDepth(0)
 		, PatchChunkStrategy(EHotUpdateChunkStrategy::None)
 	{
 	}
@@ -844,9 +835,9 @@ enum class EHotUpdateAndroidTextureFormat : uint8
 	Multi           UMETA(DisplayName = "Multi")
 };
 
-// 打包进度委托
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPackageProgressDelegate, const FHotUpdatePackageProgress&, Progress);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPatchPackageCompleteDelegate, const FHotUpdatePatchPackageResult&, Result);
+// 打包进度委托（使用普通委托支持 Slate AddSP 绑定）
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnPackageProgressDelegate, const FHotUpdatePackageProgress&);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnPatchPackageCompleteDelegate, const FHotUpdatePatchPackageResult&);
 
 
 /**
@@ -1004,17 +995,17 @@ struct HOTUPDATEEDITOR_API FHotUpdateCustomPackageConfig
 {
 	GENERATED_BODY()
 
-	/// 版本号（自动生成时间戳格式: custom_YYYYMMDD_HHMMSS）
+	/// 版本号（自动生成时间戳格式: Custom_YYYYMMDD_HHMMSS）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Version")
 	FString PatchVersion;
 
 	/// 目标平台
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
-	EHotUpdatePlatform Platform;
+	EHotUpdatePlatform Platform = EHotUpdatePlatform::Windows;
 
 	/// uasset 文件路径列表（磁盘绝对路径）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
-	TArray<FString> UassetFilePaths;
+	TArray<FString> UAssetFilePaths;
 
 	/// 非资产文件路径列表（磁盘绝对路径）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
@@ -1040,10 +1031,10 @@ struct HOTUPDATEEDITOR_API FHotUpdateCustomPackageConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Android")
 	EHotUpdateAndroidTextureFormat AndroidTextureFormat = EHotUpdateAndroidTextureFormat::ASTC;
 
-		/// Pak 挂载优先级（容器名 _n_P 中的 n，0=默认_P，数字越大优先级越高）
-		UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging", meta = (ClampMin = "0"))
-		int32 PakPriority = 10;
-	};
+	/// Pak 挂载优先级（容器名 _n_P 中的 n，0=默认_P，数字越大优先级越高）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging", meta = (ClampMin = "0"))
+	int32 PakPriority = 10;
+};
 
 /**
  * 自定义打包结果
@@ -1086,5 +1077,5 @@ struct HOTUPDATEEDITOR_API FHotUpdateCustomPackageResult
 	FString ManifestFilePath;
 };
 
-/** 自定义打包完成委托 */
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCustomPackageCompleteDelegate, const FHotUpdateCustomPackageResult&, Result);
+/** 自定义打包完成委托（使用普通委托支持 Slate AddSP 绑定） */
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnCustomPackageCompleteDelegate, const FHotUpdateCustomPackageResult&);

@@ -1,7 +1,6 @@
 // Copyright czm. All Rights Reserved.
 
 #include "Widgets/HotUpdatePackagingPanel.h"
-#include "Widgets/HotUpdatePackagingCallbackHandler.h"
 #include "HotUpdateEditor.h"
 #include "HotUpdateEditorSettings.h"
 #include "HotUpdateEditorStyle.h"
@@ -61,17 +60,11 @@ void SHotUpdatePackagingPanel::Construct(const FArguments& InArgs)
 	// 初始化版本选择选项
 	RefreshVersionSelectOptions();
 
-	// 创建回调处理器并绑定委托
-	CallbackHandler = NewObject<UHotUpdatePackagingCallbackHandler>();
-	CallbackHandler->AddToRoot();
-	CallbackHandler->OnCompleteDelegate.BindSP(this, &SHotUpdatePackagingPanel::OnPackagingComplete);
-	CallbackHandler->OnProgressDelegate.BindSP(this, &SHotUpdatePackagingPanel::OnPackagingProgress);
-
 	// 创建更新包构建器
 	PatchPackageBuilder = NewObject<UHotUpdatePatchPackageBuilder>();
 	PatchPackageBuilder->AddToRoot();
-	PatchPackageBuilder->OnProgress.AddDynamic(CallbackHandler, &UHotUpdatePackagingCallbackHandler::OnPackagingProgress);
-	PatchPackageBuilder->OnComplete.AddDynamic(CallbackHandler, &UHotUpdatePackagingCallbackHandler::OnPatchPackageComplete);
+	PatchPackageBuilder->OnProgress.AddSP(this, &SHotUpdatePackagingPanel::OnPackagingProgress);
+	PatchPackageBuilder->OnComplete.AddSP(this, &SHotUpdatePackagingPanel::OnPackagingComplete);
 
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("SHotUpdatePackagingPanel::Construct 完成"));
 
@@ -93,6 +86,17 @@ void SHotUpdatePackagingPanel::Construct(const FArguments& InArgs)
 			CreateRightPanel()
 		]
 	];
+}
+
+SHotUpdatePackagingPanel::~SHotUpdatePackagingPanel()
+{
+	if (PatchPackageBuilder)
+	{
+		PatchPackageBuilder->OnProgress.RemoveAll(this);
+		PatchPackageBuilder->OnComplete.RemoveAll(this);
+		PatchPackageBuilder->RemoveFromRoot();
+		PatchPackageBuilder = nullptr;
+	}
 }
 
 TSharedRef<SWidget> SHotUpdatePackagingPanel::CreateLeftPanel()
@@ -829,7 +833,7 @@ FReply SHotUpdatePackagingPanel::OnBrowseOutputDirectory()
 	return FReply::Handled();
 }
 
-void SHotUpdatePackagingPanel::OnPackagingComplete(const FHotUpdatePackageResult& Result)
+void SHotUpdatePackagingPanel::OnPackagingComplete(const FHotUpdatePatchPackageResult& Result)
 {
 	bIsPackaging = false;
 
@@ -844,15 +848,15 @@ void SHotUpdatePackagingPanel::OnPackagingComplete(const FHotUpdatePackageResult
 	{
 		FString SuccessMsg = FString::Printf(
 			TEXT("打包成功! 文件: %s, 大小: %.2f MB, 资源数: %d"),
-			*Result.OutputFilePath,
-			Result.FileSize / (1024.0 * 1024.0),
-			Result.AssetCount
+			*Result.PatchUtocPath,
+			Result.PatchSize / (1024.0 * 1024.0),
+			Result.ChangedAssetCount
 		);
 		StatusTextBlock->SetText(FText::FromString(SuccessMsg));
 		StatusTextBlock->SetColorAndOpacity(FHotUpdateEditorStyle::GetSuccessColor());
 		ProgressBar->SetPercent(1.0f);
 
-		FHotUpdateNotificationHelper::ShowSuccessNotification(FText::FromString(SuccessMsg), FPaths::GetPath(Result.OutputFilePath));
+		FHotUpdateNotificationHelper::ShowSuccessNotification(FText::FromString(SuccessMsg), FPaths::GetPath(Result.PatchUtocPath));
 	}
 	else
 	{
@@ -1034,18 +1038,6 @@ EVisibility SHotUpdatePackagingPanel::GetAndroidTextureFormatVisibility() const
 		return EVisibility::Visible;
 	}
 	return EVisibility::Collapsed;
-}
-
-void SHotUpdatePackagingPanel::CleanupRootReferences()
-{
-	if (PatchPackageBuilder)
-	{
-		PatchPackageBuilder->RemoveFromRoot();
-	}
-	if (CallbackHandler)
-	{
-		CallbackHandler->RemoveFromRoot();
-	}
 }
 
 void SHotUpdatePackagingPanel::UpdateProgressBar(float Percent)

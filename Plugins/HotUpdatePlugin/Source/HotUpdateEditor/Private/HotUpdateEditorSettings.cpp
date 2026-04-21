@@ -44,7 +44,6 @@ FHotUpdateMinimalPackageConfig UHotUpdateEditorSettings::GetDefaultMinimalPackag
 	Config.bEnableMinimalPackage = bDefaultEnableMinimalPackage;
 	Config.DependencyStrategy = DefaultDependencyStrategy;
 	Config.WhitelistDirectories = DefaultWhitelistDirectories;
-	Config.MaxDependencyDepth = 0;
 	return Config;
 }
 

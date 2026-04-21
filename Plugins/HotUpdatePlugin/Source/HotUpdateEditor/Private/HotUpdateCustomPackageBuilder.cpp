@@ -23,9 +23,9 @@ TArray<FString> UHotUpdateCustomPackageBuilder::ResolveUassetPathsForCook() cons
 {
 	TArray<FString> AssetPathsToCook;
 
-	UE_LOG(LogHotUpdateEditor, Log, TEXT("ResolveUassetPathsForCook: UassetFilePaths.Num()=%d"), CurrentConfig.UassetFilePaths.Num());
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("ResolveUassetPathsForCook: UassetFilePaths.Num()=%d"), CurrentConfig.UAssetFilePaths.Num());
 
-	for (const FString& UassetFilePath : CurrentConfig.UassetFilePaths)
+	for (const FString& UassetFilePath : CurrentConfig.UAssetFilePaths)
 	{
 		FString PackageName = ResolveDiskPathToPackageName(UassetFilePath);
 		if (!PackageName.IsEmpty())
@@ -112,8 +112,8 @@ FHotUpdateCustomPackageResult UHotUpdateCustomPackageBuilder::ExecuteBuild(const
 	FHotUpdateCustomPackageResult Result;
 	bIsCancelled = false;
 
-	int32 TotalAssetCount = Config.UassetFilePaths.Num() + Config.NonAssetFilePaths.Num();
-	UE_LOG(LogHotUpdateEditor, Log, TEXT("自定义打包: uasset %d 个, 非资产 %d 个"), Config.UassetFilePaths.Num(), Config.NonAssetFilePaths.Num());
+	int32 TotalAssetCount = Config.UAssetFilePaths.Num() + Config.NonAssetFilePaths.Num();
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("自定义打包: uasset %d 个, 非资产 %d 个"), Config.UAssetFilePaths.Num(), Config.NonAssetFilePaths.Num());
 
 	if (TotalAssetCount == 0)
 	{
@@ -160,7 +160,7 @@ FHotUpdateCustomPackageResult UHotUpdateCustomPackageBuilder::ExecuteBuild(const
 
 	// uasset 文件：磁盘路径已经可用
 	FString CookedPlatformDir = HotUpdateUtils::GetCookedPlatformDir(Config.Platform);
-	for (const FString& UassetPath : Config.UassetFilePaths)
+	for (const FString& UassetPath : Config.UAssetFilePaths)
 	{
 		// 尝试使用 Cook 后路径
 		FString PackageName = ResolveDiskPathToPackageName(UassetPath);
@@ -362,7 +362,7 @@ void UHotUpdateCustomPackageBuilder::BuildCustomPackageAsync(const FHotUpdateCus
 	CurrentConfig = Config;
 
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("CurrentConfig.UassetFilePaths 数量: %d, NonAssetFilePaths 数量: %d"),
-		CurrentConfig.UassetFilePaths.Num(), CurrentConfig.NonAssetFilePaths.Num());
+		CurrentConfig.UAssetFilePaths.Num(), CurrentConfig.NonAssetFilePaths.Num());
 
 	// 在 GameThread 将 uasset 磁盘路径反向解析为 UE 包名（供 Cook 使用）
 	TArray<FString> AssetPathsToCook = ResolveUassetPathsForCook();

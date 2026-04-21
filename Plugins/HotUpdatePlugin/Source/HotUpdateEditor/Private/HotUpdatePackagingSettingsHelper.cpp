@@ -19,15 +19,22 @@ FHotUpdatePackagingSettingsResult FHotUpdatePackagingSettingsHelper::ParsePackag
 	FHotUpdatePackagingSettingsResult Result;
 
 	UProjectPackagingSettings* Settings = GetPackagingSettings();
-	if (!Settings)
-	{
+	if (!Settings){
 		Result.Errors.Add(TEXT("无法获取项目打包设置"));
 		return Result;
 	}
 
+	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+	IAssetRegistry* AssetRegistry = &AssetRegistryModule.Get();
+
+	// 强制刷新 AssetRegistry
+	AssetRegistry->SearchAllAssets(true);
+	while (AssetRegistry->IsLoadingAssets())
+	{
+		FPlatformProcess::Sleep(0.1f);
+	}
+
 	// 读取基本配置
-	Result.bCookAll = Settings->bCookAll;
-	Result.bCookMapsOnly = Settings->bCookMapsOnly;
 	Result.bSkipEditorContent = Settings->bSkipEditorContent;
 
 	// 1. 收集 MapsToCook 中的地图
@@ -36,44 +43,24 @@ FHotUpdatePackagingSettingsResult FHotUpdatePackagingSettingsHelper::ParsePackag
 	Result.AssetPaths.Append(MapPaths);
 
 	// 2. 收集 DirectoriesToAlwaysCook 中的资源（bCookMapsOnly 时跳过）
-	if (!Result.bCookMapsOnly)
-	{
-		TArray<FString> AlwaysCookAssets = CollectAlwaysCookAssets(Settings);
-		Result.AssetPaths.Append(AlwaysCookAssets);
-	}
+	TArray<FString> AlwaysCookAssets = CollectAlwaysCookAssets(Settings);
+	Result.AssetPaths.Append(AlwaysCookAssets);
 
-	// 3. 如果 bCookAll 为 true，给出警告
-	if (Result.bCookAll)
-	{
-		Result.Warnings.Add(TEXT("项目配置了 Cook All，这可能导致大量资源被打包"));
-	}
-
-	// 4. 过滤 NeverCook 目录
+	// 3. 过滤 NeverCook 目录
 	FilterNeverCookAssets(Result.AssetPaths, Settings);
 
-	// 5. 过滤编辑器内容
-	if (Result.bSkipEditorContent)
-	{
+	// 4. 过滤编辑器内容
+	if (Result.bSkipEditorContent){
 		FilterEditorContent(Result.AssetPaths);
 	}
 
-	// 6. 去重
+	// 5. 去重
 	TSet<FString> UniquePaths(Result.AssetPaths);
 	Result.AssetPaths = UniquePaths.Array();
 
-	// 7. 解析资源依赖（Hard + Soft，因为 Cooker 会同时打包软引用资源）
+	// 6. 解析资源依赖（Hard + Soft，因为 Cooker 会同时打包软引用资源）
 	if (bIncludeDependencies)
 	{
-		FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
-		IAssetRegistry* AssetRegistry = &AssetRegistryModule.Get();
-
-		// 强制刷新 AssetRegistry，确保依赖数据完整（Commandlet 模式下缓存可能不包含完整依赖）
-		AssetRegistry->SearchAllAssets(true);
-		while (AssetRegistry->IsLoadingAssets())
-		{
-			FPlatformProcess::Sleep(0.1f);
-		}
-
 		TSet<FString> AllPaths(Result.AssetPaths);
 		for (const FString& AssetPath : Result.AssetPaths)
 		{
@@ -83,21 +70,14 @@ FHotUpdatePackagingSettingsResult FHotUpdatePackagingSettingsHelper::ParsePackag
 				for (const FName& Dep : Dependencies)
 				{
 					FString DepStr = Dep.ToString();
-					// 包含 /Game（项目）、/Engine（引擎）、插件路径（如 /NNE/、/Water/）
-					// 排除 /Script/ 路径（C++ 类型引用，不是资产）
-					if (DepStr.StartsWith(TEXT("/Game/")) || DepStr.StartsWith(TEXT("/Engine/")) ||
-						(DepStr.StartsWith(TEXT("/")) && !DepStr.StartsWith(TEXT("/Script/"))))
-					{
-						AllPaths.Add(DepStr);
-					}
+					AllPaths.Add(DepStr);
 				}
 			}
 		}
 		Result.AssetPaths = AllPaths.Array();
 	}
 
-	UE_LOG(LogHotUpdateEditor, Log, TEXT("解析项目打包配置完成: %d 个资源, %d 个地图"),
-		Result.AssetPaths.Num(), Result.MapPaths.Num());
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("解析项目打包配置完成: %d 个资源, %d 个地图"), Result.AssetPaths.Num(), Result.MapPaths.Num());
 
 	return Result;
 }

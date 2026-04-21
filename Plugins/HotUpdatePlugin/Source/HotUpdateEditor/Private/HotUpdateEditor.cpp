@@ -2,21 +2,15 @@
 
 #include "HotUpdateEditor.h"
 #include "HotUpdateEditorStyle.h"
-#include "HotUpdateContentBrowserExtension.h"
 #include "Widgets/HotUpdateMainWindow.h"
-#include "Widgets/HotUpdatePackagingPanel.h"
 #include "ToolMenus.h"
 #include "Styling/AppStyle.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Docking/TabManager.h"
 #include "Widgets/Docking/SDockTab.h"
-#include "ContentBrowserModule.h"
-#include "IContentBrowserSingleton.h"
-#include "Subsystems/AssetEditorSubsystem.h"
 #include "WorkspaceMenuStructureModule.h"
 #include "WorkspaceMenuStructure.h"
 #include "Framework/Docking/WorkspaceItem.h"
-#include "Misc/PackageName.h"
 
 // 日志分类定义
 DEFINE_LOG_CATEGORY(LogHotUpdateEditor);
@@ -27,8 +21,6 @@ static const FName HotUpdateTabName("HotUpdateTools");
 
 // 定义待定数据静态成员
 int32 FHotUpdatePendingData::InitialTab = 0;
-TArray<FString> FHotUpdatePendingData::UassetFilePaths;
-TArray<FString> FHotUpdatePendingData::NonAssetFilePaths;
 bool FHotUpdatePendingData::bNeedReRegisterSpawner = false;
 
 /** 注册 Nomad Tab Spawner */
@@ -56,16 +48,6 @@ static void RegisterHotUpdateTabSpawner()
 			{
 				MainWindow->SetInitialTab(FHotUpdatePendingData::InitialTab);
 				FHotUpdatePendingData::InitialTab = 0;
-			}
-			if (FHotUpdatePendingData::UassetFilePaths.Num() > 0)
-			{
-				MainWindow->SetUassetFilePaths(FHotUpdatePendingData::UassetFilePaths);
-				FHotUpdatePendingData::UassetFilePaths.Empty();
-			}
-			if (FHotUpdatePendingData::NonAssetFilePaths.Num() > 0)
-			{
-				MainWindow->SetNonAssetFilePaths(FHotUpdatePendingData::NonAssetFilePaths);
-				FHotUpdatePendingData::NonAssetFilePaths.Empty();
 			}
 
 			MajorTab->SetContent(MainWindow);
@@ -106,9 +88,6 @@ public:
 		// 初始化样式
 		FHotUpdateEditorStyle::Initialize();
 
-		// 注册Content Browser扩展
-		FHotUpdateContentBrowserExtension::Register();
-
 		// 注册菜单
 		RegisterMenus();
 
@@ -124,9 +103,6 @@ public:
 
 		// 取消注册 Tab Spawner
 		FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(HotUpdateTabName);
-
-		// 注销Content Browser扩展
-		FHotUpdateContentBrowserExtension::Unregister();
 
 		// 清理样式
 		FHotUpdateEditorStyle::Shutdown();
@@ -161,40 +137,6 @@ private:
 				FUIAction(FExecuteAction::CreateLambda([this]()
 				{
 					HotUpdateOpenTab(0);
-				}))
-			);
-		}));
-
-		// 注册右键菜单扩展
-		UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateLambda([this]()
-		{
-			FToolMenuOwnerScoped MenuOwnerScoped(this);
-
-			// 内容浏览器资产右键菜单
-			UToolMenu* AssetContextMenu = UToolMenus::Get()->ExtendMenu("ContentBrowser.AssetContextMenu");
-			FToolMenuSection& Section = AssetContextMenu->AddSection("HotUpdateOperations", LOCTEXT("HotUpdateOperations", "热更新"));
-
-			Section.AddMenuEntry(
-				"Asset_HotUpdatePackage",
-				LOCTEXT("AssetHotUpdatePackage", "热更新打包"),
-				LOCTEXT("AssetHotUpdatePackageTooltip", "将选中资源打包为热更新Pak文件"),
-				FSlateIcon(FAppStyle::GetAppStyleSetName(), "MainFrame.CookContent"),
-				FUIAction(FExecuteAction::CreateLambda([this]()
-				{
-					FContentBrowserModule& ContentBrowserModule = FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser");
-					TArray<FAssetData> SelectedAssets;
-					ContentBrowserModule.Get().GetSelectedAssets(SelectedAssets);
-
-					if (SelectedAssets.Num() > 0)
-					{
-						// 收集资源路径
-						FHotUpdatePendingData::UassetFilePaths.Empty();
-						for (const FAssetData& Asset : SelectedAssets)
-						{
-							FHotUpdatePendingData::UassetFilePaths.Add(Asset.PackageName.ToString());
-						}
-							HotUpdateOpenTab(2);
-					}
 				}))
 			);
 		}));

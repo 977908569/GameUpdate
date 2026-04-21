@@ -52,11 +52,9 @@ public:
 	bool ValidateConfig(const FHotUpdatePatchPackageConfig& Config, FString& OutErrorMessage);
 
 	// 进度委托
-	UPROPERTY(BlueprintAssignable, Category = "Hot Update|PatchPackage")
 	FOnPackageProgressDelegate OnProgress;
 
 	// 完成委托
-	UPROPERTY(BlueprintAssignable, Category = "Hot Update|PatchPackage")
 	FOnPatchPackageCompleteDelegate OnComplete;
 
 	/** 委托给 Helper */
