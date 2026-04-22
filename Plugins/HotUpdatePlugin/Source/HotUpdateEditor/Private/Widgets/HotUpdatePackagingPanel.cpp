@@ -779,6 +779,7 @@ FReply SHotUpdatePackagingPanel::OnPackageClicked()
 	PatchConfig.IoStoreConfig.bEncryptIndex = EditorSettings->bDefaultEncryptIndex;
 	PatchConfig.IoStoreConfig.bEncryptContent = EditorSettings->bDefaultEncryptContent;
 	PatchConfig.IoStoreConfig.bUseIoStore = (PackageConfig.OutputFormat == EHotUpdateOutputFormat::IoStore);
+	PatchConfig.bSynchronousMode = false;
 
 	// 开始打包
 	bIsPackaging = true;
@@ -1050,8 +1051,8 @@ void SHotUpdatePackagingPanel::RefreshVersionSelectOptions()
 {
 	VersionSelectOptions.Empty();
 
-	UHotUpdateVersionManager* VersionManager = NewObject<UHotUpdateVersionManager>();
-	TArray<FHotUpdateVersionSelectItem> Versions = VersionManager->GetSelectableVersions(PackageConfig.Platform);
+	FHotUpdateVersionManager VersionManager;
+	TArray<FHotUpdateVersionSelectItem> Versions = VersionManager.GetSelectableVersions(PackageConfig.Platform);
 
 	for (const FHotUpdateVersionSelectItem& Version : Versions)
 	{

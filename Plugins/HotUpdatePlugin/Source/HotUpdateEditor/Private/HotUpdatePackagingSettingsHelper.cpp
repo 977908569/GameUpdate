@@ -2,6 +2,7 @@
 
 #include "HotUpdatePackagingSettingsHelper.h"
 #include "HotUpdateEditor.h"
+#include "HotUpdateAssetFilter.h"
 #include "Settings/ProjectPackagingSettings.h"
 #include "HAL/PlatformFileManager.h"
 #include "Misc/Paths.h"
@@ -77,7 +78,7 @@ FHotUpdatePackagingSettingsResult FHotUpdatePackagingSettingsHelper::ParsePackag
 		TSet<FString> AllPaths(Result.AssetPaths);
 		for (const FString& AssetPath : Result.AssetPaths)
 		{
-			CollectPackageAndAllDependencies(*AssetRegistry, AssetPath, AllPaths);
+			FHotUpdateAssetFilter::GetDependencies(AssetPath, AssetRegistry, EHotUpdateDependencyStrategy::IncludeAll, AllPaths);
 		}
 		Result.AssetPaths = AllPaths.Array();
 	}
@@ -265,9 +266,7 @@ void FHotUpdatePackagingSettingsHelper::CollectStagedFilesAsUFS(TArray<FString>&
 	{
 		return;
 	}
-
-	FString ContentDir = FPaths::ProjectContentDir();
-
+	const FString ContentDir = FPaths::ProjectContentDir();
 	for (const FDirectoryPath& Dir : Settings->DirectoriesToAlwaysStageAsUFS)
 	{
 		CollectStagedFilesFromDirectory(Dir, ContentDir, OutPaths);
@@ -302,49 +301,5 @@ void FHotUpdatePackagingSettingsHelper::CollectStagedFilesFromDirectory(const FD
 		FPaths::MakePathRelativeTo(RelativePath, *ContentDir);
 		FString PakPath = TEXT("Game") / RelativePath;
 		OutPaths.Add(PakPath);
-	}
-}
-
-void FHotUpdatePackagingSettingsHelper::CollectPackageAndAllReferencers(
-	IAssetRegistry& InAssetRegistry,
-	const FString& PackageName,
-	TSet<FString>& OutPackages)
-{
-	if (OutPackages.Contains(PackageName))
-		return;
-
-	OutPackages.Add(PackageName);
-
-	TArray<FName> HardReferencers;
-	InAssetRegistry.GetReferencers(FName(*PackageName), HardReferencers,
-		UE::AssetRegistry::EDependencyCategory::Package,
-		UE::AssetRegistry::EDependencyQuery::Hard);
-
-	for (const FName& Referencer : HardReferencers)
-	{
-		FString ReferencerStr = Referencer.ToString();
-		CollectPackageAndAllReferencers(InAssetRegistry, ReferencerStr, OutPackages);
-	}
-}
-
-void FHotUpdatePackagingSettingsHelper::CollectPackageAndAllDependencies(
-	IAssetRegistry& InAssetRegistry,
-	const FString& PackageName,
-	TSet<FString>& OutPackages)
-{
-	if (OutPackages.Contains(PackageName))
-		return;
-
-	OutPackages.Add(PackageName);
-
-	TArray<FName> Dependencies;
-	InAssetRegistry.GetDependencies(FName(*PackageName), Dependencies,
-		UE::AssetRegistry::EDependencyCategory::Package,
-		UE::AssetRegistry::EDependencyQuery::Hard | UE::AssetRegistry::EDependencyQuery::Soft);
-
-	for (const FName& Dependency : Dependencies)
-	{
-		FString DependencyStr = Dependency.ToString();
-		CollectPackageAndAllDependencies(InAssetRegistry, DependencyStr, OutPackages);
 	}
 }

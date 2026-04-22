@@ -69,14 +69,12 @@ public:
 	 * @param AssetPath 资源路径
 	 * @param AssetRegistry 资产注册表
 	 * @param Strategy 依赖策略
-	 * @param MaxDepth 最大深度（0 = 无限制）
 	 * @param OutDependencies 输出依赖列表
 	 */
 	static void GetDependencies(
 		const FString& AssetPath,
 		IAssetRegistry* AssetRegistry,
 		EHotUpdateDependencyStrategy Strategy,
-		int32 MaxDepth,
 		TSet<FString>& OutDependencies);
 
 	/**
@@ -97,8 +95,6 @@ private:
 		const FString& AssetPath,
 		IAssetRegistry* AssetRegistry,
 		EHotUpdateDependencyStrategy Strategy,
-		int32 CurrentDepth,
-		int32 MaxDepth,
 		TSet<FString>& OutDependencies,
 		TSet<FString>& Visited);
 

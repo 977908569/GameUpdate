@@ -11,13 +11,13 @@
 #include "Misc/PackageName.h"
 #include "GenericPlatform/GenericPlatformProcess.h"
 
-UHotUpdateIoStoreBuilder::UHotUpdateIoStoreBuilder()
+FHotUpdateIoStoreBuilder::FHotUpdateIoStoreBuilder()
 	: bIsBuilding(false)
 	, bIsCancelled(false)
 {
 }
 
-FHotUpdateIoStoreResult UHotUpdateIoStoreBuilder::BuildIoStoreContainer(
+FHotUpdateIoStoreResult FHotUpdateIoStoreBuilder::BuildIoStoreContainer(
 	const TMap<FString, FString>& AssetPathToDiskPath,
 	const FString& OutputPath,
 	const FHotUpdateIoStoreConfig& Config)
@@ -51,7 +51,7 @@ FHotUpdateIoStoreResult UHotUpdateIoStoreBuilder::BuildIoStoreContainer(
 	return Result;
 }
 
-void UHotUpdateIoStoreBuilder::BuildIoStoreContainerAsync(
+void FHotUpdateIoStoreBuilder::BuildIoStoreContainerAsync(
 	const TMap<FString, FString>& AssetPathToDiskPath,
 	const FString& OutputPath,
 	const FHotUpdateIoStoreConfig& Config)
@@ -86,10 +86,10 @@ void UHotUpdateIoStoreBuilder::BuildIoStoreContainerAsync(
 	bIsBuilding = true;
 	bIsCancelled = false;
 
-	BuildTask = Async(EAsyncExecution::Thread, [WeakThis = TWeakObjectPtr<UHotUpdateIoStoreBuilder>(this), AssetPathToDiskPath, OutputPath, Config]()
+	BuildTask = Async(EAsyncExecution::Thread, [WeakBuilder = TWeakPtr<FHotUpdateIoStoreBuilder>(AsShared()), AssetPathToDiskPath, OutputPath, Config]()
 	{
-		if (!WeakThis.IsValid()) return;
-		auto* Self = WeakThis.Get();
+		TSharedPtr<FHotUpdateIoStoreBuilder> Self = WeakBuilder.Pin();
+		if (!Self.IsValid()) return;
 		FHotUpdateIoStoreResult Result;
 		bool bSuccess = Self->CreateIoStoreWithUnrealPak(AssetPathToDiskPath, OutputPath, Config, Result);
 
@@ -98,26 +98,27 @@ void UHotUpdateIoStoreBuilder::BuildIoStoreContainerAsync(
 
 		Self->bIsBuilding = false;
 
-		AsyncTask(ENamedThreads::GameThread, [WeakThis, Result]()
+		AsyncTask(ENamedThreads::GameThread, [WeakBuilder, Result]()
 		{
-			if (!WeakThis.IsValid()) return;
-			WeakThis.Get()->OnComplete.Broadcast(Result);
+			TSharedPtr<FHotUpdateIoStoreBuilder> PinnedBuilder = WeakBuilder.Pin();
+			if (!PinnedBuilder.IsValid()) return;
+			PinnedBuilder->OnComplete.Broadcast(Result);
 		});
 	});
 }
 
-void UHotUpdateIoStoreBuilder::CancelBuild()
+void FHotUpdateIoStoreBuilder::CancelBuild()
 {
 	bIsCancelled = true;
 }
 
-FHotUpdateIoStoreProgress UHotUpdateIoStoreBuilder::GetCurrentProgress() const
+FHotUpdateIoStoreProgress FHotUpdateIoStoreBuilder::GetCurrentProgress() const
 {
 	FScopeLock Lock(&ProgressCriticalSection);
 	return CurrentProgress;
 }
 
-bool UHotUpdateIoStoreBuilder::ValidateConfig(const FHotUpdateIoStoreConfig& Config, FString& OutErrorMessage)
+bool FHotUpdateIoStoreBuilder::ValidateConfig(const FHotUpdateIoStoreConfig& Config, FString& OutErrorMessage)
 {
 	if (Config.ContainerName.IsEmpty())
 	{
@@ -137,7 +138,7 @@ bool UHotUpdateIoStoreBuilder::ValidateConfig(const FHotUpdateIoStoreConfig& Con
 	return true;
 }
 
-bool UHotUpdateIoStoreBuilder::CreateIoStoreWithUnrealPak(
+bool FHotUpdateIoStoreBuilder::CreateIoStoreWithUnrealPak(
 	const TMap<FString, FString>& AssetPathToDiskPath,
 	const FString& OutputPath,
 	const FHotUpdateIoStoreConfig& Config,
@@ -208,7 +209,7 @@ bool UHotUpdateIoStoreBuilder::CreateIoStoreWithUnrealPak(
 	return true;
 }
 
-FString UHotUpdateIoStoreBuilder::FindUnrealPakPath(FString& OutErrorMessage)
+FString FHotUpdateIoStoreBuilder::FindUnrealPakPath(FString& OutErrorMessage)
 {
 	FString EngineDir = FPaths::EngineDir();
 	#if PLATFORM_WINDOWS
@@ -229,7 +230,7 @@ FString UHotUpdateIoStoreBuilder::FindUnrealPakPath(FString& OutErrorMessage)
 	return UnrealPakPath;
 }
 
-bool UHotUpdateIoStoreBuilder::PrepareTempDirectory(
+bool FHotUpdateIoStoreBuilder::PrepareTempDirectory(
 	const FString& TempDir,
 	FString& OutErrorMessage)
 {
@@ -252,7 +253,7 @@ bool UHotUpdateIoStoreBuilder::PrepareTempDirectory(
 	return true;
 }
 
-FString UHotUpdateIoStoreBuilder::DetermineAssetExtension(FString& InOutPakPath, const FString& DiskPath)
+FString FHotUpdateIoStoreBuilder::DetermineAssetExtension(FString& InOutPakPath, const FString& DiskPath)
 {
 	// 情况1：路径已有 UE 资源扩展名，剥离后返回
 	if (InOutPakPath.EndsWith(TEXT(".uasset")) || InOutPakPath.EndsWith(TEXT(".umap")) ||
@@ -293,7 +294,7 @@ FString UHotUpdateIoStoreBuilder::DetermineAssetExtension(FString& InOutPakPath,
 	return TEXT("uasset");
 }
 
-FString UHotUpdateIoStoreBuilder::MapPluginPathToPakMountPath(const FString& PluginPakPath, const FString& ProjectName)
+FString FHotUpdateIoStoreBuilder::MapPluginPathToPakMountPath(const FString& PluginPakPath, const FString& ProjectName)
 {
 	// 尝试通过 FPackageName 解析实际文件路径
 	FString ResolvedPath;
@@ -332,7 +333,7 @@ FString UHotUpdateIoStoreBuilder::MapPluginPathToPakMountPath(const FString& Plu
 	return FString::Printf(TEXT("../../../Engine/Plugins/%s"), *PluginPakPath.Mid(1));
 }
 
-FString UHotUpdateIoStoreBuilder::MapToPakMountPath(const FString& PakPath)
+FString FHotUpdateIoStoreBuilder::MapToPakMountPath(const FString& PakPath)
 {
 	FString ProjectName = FApp::GetProjectName();
 
@@ -352,7 +353,7 @@ FString UHotUpdateIoStoreBuilder::MapToPakMountPath(const FString& PakPath)
 	return MapPluginPathToPakMountPath(PakPath, ProjectName);
 }
 
-FString UHotUpdateIoStoreBuilder::GetPakInternalPath(const FString& AssetPath, const FString& DiskPath)
+FString FHotUpdateIoStoreBuilder::GetPakInternalPath(const FString& AssetPath, const FString& DiskPath)
 {
 	// 从 AssetPath（如 "/Game/Maps/Start"）转换为 Pak 内部路径（Dest 路径）
 	// UE5 标准 pak 的 Dest 路径格式: ../../../{ProjectName}/Content/...
@@ -387,7 +388,7 @@ FString UHotUpdateIoStoreBuilder::GetPakInternalPath(const FString& AssetPath, c
 	return PakPath;
 }
 
-bool UHotUpdateIoStoreBuilder::GenerateResponseFile(
+bool FHotUpdateIoStoreBuilder::GenerateResponseFile(
 	const TMap<FString, FString>& AssetPathToDiskPath,
 	const FString& ResponseFilePath,
 	const FString& CompressionFormat,
@@ -507,7 +508,7 @@ bool UHotUpdateIoStoreBuilder::GenerateResponseFile(
 	return true;
 }
 
-bool UHotUpdateIoStoreBuilder::PrepareOutputDirectory(
+bool FHotUpdateIoStoreBuilder::PrepareOutputDirectory(
 	const FString& OutputPath,
 	FString& OutErrorMessage)
 {
@@ -536,7 +537,7 @@ bool UHotUpdateIoStoreBuilder::PrepareOutputDirectory(
 	return true;
 }
 
-FString UHotUpdateIoStoreBuilder::BuildUnrealPakCommandLine(
+FString FHotUpdateIoStoreBuilder::BuildUnrealPakCommandLine(
 	const FString& OutputPath,
 	const FString& ResponseFilePath,
 	const FString& CryptoKeyPath,
@@ -598,7 +599,7 @@ FString UHotUpdateIoStoreBuilder::BuildUnrealPakCommandLine(
 	return CmdLine;
 }
 
-bool UHotUpdateIoStoreBuilder::ExecuteUnrealPak(
+bool FHotUpdateIoStoreBuilder::ExecuteUnrealPak(
 	const FString& UnrealPakPath,
 	const FString& CmdLine,
 	const FString& OutputPath,
@@ -681,12 +682,12 @@ bool UHotUpdateIoStoreBuilder::ExecuteUnrealPak(
 	return false;
 }
 
-void UHotUpdateIoStoreBuilder::CleanupTempDirectory(const FString& TempDir)
+void FHotUpdateIoStoreBuilder::CleanupTempDirectory(const FString& TempDir)
 {
 	IPlatformFile::GetPlatformPhysical().DeleteDirectoryRecursively(*TempDir);
 }
 
-FString UHotUpdateIoStoreBuilder::GenerateCryptoKeyFile(
+FString FHotUpdateIoStoreBuilder::GenerateCryptoKeyFile(
 	const FString& TempDir,
 	const FHotUpdateIoStoreConfig& Config)
 {
@@ -719,7 +720,7 @@ FString UHotUpdateIoStoreBuilder::GenerateCryptoKeyFile(
 	return TEXT("");
 }
 
-void UHotUpdateIoStoreBuilder::UpdateProgress(
+void FHotUpdateIoStoreBuilder::UpdateProgress(
 	const FString& Stage,
 	const FString& CurrentFile,
 	int32 ProcessedFiles,

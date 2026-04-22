@@ -4,20 +4,17 @@
 #include "HotUpdatePackageHelper.h"
 #include "Core/HotUpdateFileUtils.h"
 #include "HotUpdateEditor.h"
+#include "HotUpdateIoStoreBuilder.h"
 #include "HotUpdateUtils.h"
 #include "HotUpdatePackagingSettingsHelper.h"
-#include "Settings/ProjectPackagingSettings.h"
+#include "HotUpdateVersionManager.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
 #include "HAL/PlatformFileManager.h"
-#include "HAL/PlatformProcess.h"
 #include "Misc/FileHelper.h"
 #include "Misc/MonitoredProcess.h"
 #include "Misc/Paths.h"
-#include "Misc/App.h"
-#include "Misc/SecureHash.h"
 #include "JsonObjectConverter.h"
-#include "Interfaces/IPluginManager.h"
 
 FHotUpdatePatchPackageBuilder::FHotUpdatePatchPackageBuilder()
 	: bIsBuilding(false)
@@ -28,7 +25,6 @@ FHotUpdatePatchPackageBuilder::FHotUpdatePatchPackageBuilder()
 FHotUpdatePatchPackageResult FHotUpdatePatchPackageBuilder::BuildPatchPackage(const FHotUpdatePatchPackageConfig& Config)
 {
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("BuildPatchPackage (同步) 开始调用"));
-
 	FHotUpdatePatchPackageResult Result;
 
 	// 验证配置
@@ -385,7 +381,7 @@ FHotUpdatePatchPackageResult FHotUpdatePatchPackageBuilder::BuildPatchPackage(co
 
 	if (ChangedAssetDiskPaths.Num() > 0)
 	{
-		UHotUpdateIoStoreBuilder* IoStoreBuilder = NewObject<UHotUpdateIoStoreBuilder>();
+		FHotUpdateIoStoreBuilder IoStoreBuilder;
 
 		FHotUpdateIoStoreConfig IoStoreConfig = CurrentConfig.IoStoreConfig;
 		IoStoreConfig.bUseIoStore = false;  // Patch 强制使用 .pak 格式
@@ -399,7 +395,7 @@ FHotUpdatePatchPackageResult FHotUpdatePatchPackageBuilder::BuildPatchPackage(co
 
 		FString PatchOutputPath = FPaths::Combine(PaksDir, IoStoreConfig.ContainerName);
 
-		FHotUpdateIoStoreResult IoStoreResult = IoStoreBuilder->BuildIoStoreContainer(
+		FHotUpdateIoStoreResult IoStoreResult = IoStoreBuilder.BuildIoStoreContainer(
 			ChangedAssetDiskPaths, PatchOutputPath, IoStoreConfig);
 
 		if (!IoStoreResult.bSuccess)
@@ -710,7 +706,7 @@ FHotUpdatePatchPackageResult FHotUpdatePatchPackageBuilder::BuildPatchPackage(co
 	// 8. 注册版本
 	UpdateProgress(TEXT("注册版本"), TEXT(""), 0, 0);
 
-	UHotUpdateVersionManager* VersionManager = NewObject<UHotUpdateVersionManager>();
+	FHotUpdateVersionManager VersionManager;
 
 	FHotUpdateEditorVersionInfo VersionInfo;
 	VersionInfo.VersionString = CurrentConfig.PatchVersion;
@@ -723,7 +719,7 @@ FHotUpdatePatchPackageResult FHotUpdatePatchPackageBuilder::BuildPatchPackage(co
 	VersionInfo.AssetCount = AssetsToPackage.Num();
 	VersionInfo.PackageSize = Result.bIncludesBaseContainers ? Result.TotalDownloadSize : Result.PatchSize;
 
-	VersionManager->RegisterVersion(VersionInfo);
+	VersionManager.RegisterVersion(VersionInfo);
 
 	// 9. 完成
 	Result.bSuccess = true;
@@ -771,7 +767,7 @@ void FHotUpdatePatchPackageBuilder::BuildPatchPackageAsync(const FHotUpdatePatch
 
 	bIsBuilding = true;
 	bIsCancelled = false;
-	
+
 	CurrentConfig = Config;
 
 	// 始终从打包配置读取资源路径
@@ -795,86 +791,29 @@ void FHotUpdatePatchPackageBuilder::BuildPatchPackageAsync(const FHotUpdatePatch
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("预收集完成（含依赖），共 %d 个资源, %d 个非资源文件"), CurrentConfig.PreCollectedAssetPaths.Num(), CurrentConfig.PreCollectedNonAssetPaths.Num());
 
 	TWeakPtr<FHotUpdatePatchPackageBuilder> WeakBuilder(AsShared());
-
-		BuildTask = Async(EAsyncExecution::Thread, [WeakBuilder]()
+	BuildTask = Async(EAsyncExecution::Thread, [WeakBuilder](){
+		TSharedPtr<FHotUpdatePatchPackageBuilder> Builder = WeakBuilder.Pin();
+		if (!Builder.IsValid())
 		{
-			TSharedPtr<FHotUpdatePatchPackageBuilder> Builder = WeakBuilder.Pin();
-			if (!Builder.IsValid())
-			{
-				return;
-			}
-
-			FHotUpdatePatchPackageResult Result = Builder->BuildPatchPackage(Builder->CurrentConfig);
-
-			AsyncTask(ENamedThreads::GameThread, [WeakBuilder, Result]()
-			{
-				TSharedPtr<FHotUpdatePatchPackageBuilder> PinnedBuilder = WeakBuilder.Pin();
-				if (PinnedBuilder.IsValid())
-				{
-					PinnedBuilder->OnComplete.Broadcast(Result);
-				}
-			});
-		});
-}
-
-FHotUpdateDiffReport FHotUpdatePatchPackageBuilder::PreviewDiff(const FHotUpdatePatchPackageConfig& Config)
-{
-	CurrentConfig = Config;
-	FHotUpdateDiffReport Report;
-
-	// 加载基础版本
-	TMap<FString, FString> BaseAssetHashes;
-	TMap<FString, int64> BaseAssetSizes;
-
-	if (!LoadBaseManifest(CurrentConfig.BaseManifestPath.FilePath, BaseAssetHashes, BaseAssetSizes))
-	{
-		return Report;
-	}
-
-	// 收集当前资源
-	TArray<FString> CurrentAssetPaths;
-	TMap<FString, FString> CurrentAssetDiskPaths;
-	TMap<FString, FString> CurrentAssetSourcePaths;
-	FString ErrorMessage;
-
-	if (!CollectAssets( CurrentAssetPaths, CurrentAssetDiskPaths, CurrentAssetSourcePaths, ErrorMessage))
-	{
-		return Report;
-	}
-
-	// 计算当前 Hash
-	TMap<FString, FString> CurrentAssetHashes;
-	for (const FString& AssetPath : CurrentAssetPaths)
-	{
-		const FString* DiskPath = CurrentAssetDiskPaths.Find(AssetPath);
-		const FString* SourcePath = CurrentAssetSourcePaths.Find(AssetPath);
-		FString HashPath = (SourcePath && FPaths::FileExists(**SourcePath)) ? *SourcePath
-			: (DiskPath && FPaths::FileExists(**DiskPath)) ? *DiskPath : TEXT("");
-		if (!HashPath.IsEmpty())
-		{
-			CurrentAssetHashes.Add(AssetPath, UHotUpdateFileUtils::CalculateFileHash(HashPath));
+			return;
 		}
-	}
 
-	// 计算差异
-	TArray<FString> ChangedAssets;
-	ComputeDiff(CurrentAssetPaths, CurrentAssetHashes, BaseAssetHashes, ChangedAssets, Report);
+		FHotUpdatePatchPackageResult Result = Builder->BuildPatchPackage(Builder->CurrentConfig);
 
-	Report.BaseVersion = CurrentConfig.BaseVersion;
-	Report.TargetVersion = CurrentConfig.PatchVersion;
-
-	return Report;
+		AsyncTask(ENamedThreads::GameThread, [WeakBuilder, Result]()
+		{
+			TSharedPtr<FHotUpdatePatchPackageBuilder> PinnedBuilder = WeakBuilder.Pin();
+			if (PinnedBuilder.IsValid())
+			{
+				PinnedBuilder->OnComplete.Broadcast(Result);
+			}
+		});
+	});
 }
 
 void FHotUpdatePatchPackageBuilder::CancelBuild()
 {
 	bIsCancelled = true;
-}
-
-FHotUpdatePackageProgress FHotUpdatePatchPackageBuilder::GetCurrentProgress() const
-{
-	FScopeLock Lock(&ProgressCriticalSection);
-	return CurrentProgress;
 }
 
 bool FHotUpdatePatchPackageBuilder::ValidateConfig(const FHotUpdatePatchPackageConfig& Config, FString& OutErrorMessage)
@@ -1511,16 +1450,24 @@ void FHotUpdatePatchPackageBuilder::UpdateProgress(
 		ProgressCopy = CurrentProgress;
 	}
 
-	// 在游戏线程中安全地广播委托
-	TWeakPtr<FHotUpdatePatchPackageBuilder> WeakBuilder(AsShared());
-	AsyncTask(ENamedThreads::GameThread, [WeakBuilder, ProgressCopy]()
+	// 同步模式下直接广播
+	if (CurrentConfig.bSynchronousMode)
 	{
-		TSharedPtr<FHotUpdatePatchPackageBuilder> PinnedBuilder = WeakBuilder.Pin();
-		if (PinnedBuilder.IsValid())
+		OnProgress.Broadcast(ProgressCopy);
+	}
+	else
+	{
+		// 异步模式下通过 AsyncTask 在游戏线程广播
+		TWeakPtr<FHotUpdatePatchPackageBuilder> WeakBuilder(AsShared());
+		AsyncTask(ENamedThreads::GameThread, [WeakBuilder, ProgressCopy]()
 		{
-			PinnedBuilder->OnProgress.Broadcast(ProgressCopy);
-		}
-	});
+			TSharedPtr<FHotUpdatePatchPackageBuilder> PinnedBuilder = WeakBuilder.Pin();
+			if (PinnedBuilder.IsValid())
+			{
+				PinnedBuilder->OnProgress.Broadcast(ProgressCopy);
+			}
+		});
+	}
 }
 
 bool FHotUpdatePatchPackageBuilder::LoadPreviousPatchManifest(

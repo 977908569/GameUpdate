@@ -3,8 +3,6 @@
 #include "HotUpdateDiffTool.h"
 #include "HotUpdateEditor.h"
 #include "Core/HotUpdateFileUtils.h"
-#include "AssetRegistry/AssetRegistryModule.h"
-#include "AssetRegistry/IAssetRegistry.h"
 #include "HAL/PlatformFileManager.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
@@ -13,111 +11,7 @@
 #include "JsonObjectConverter.h"
 #include "IPlatformFilePak.h"
 
-UHotUpdateDiffTool::UHotUpdateDiffTool()
-	: AssetRegistry(nullptr)
-{
-	FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
-	AssetRegistry = &AssetRegistryModule.Get();
-}
-
-FHotUpdateDiffReport UHotUpdateDiffTool::CompareDirectories(
-	const FString& BaseDirectory,
-	const FString& TargetDirectory,
-	bool bRecursive)
-{
-	UE_LOG(LogHotUpdateEditor, Log, TEXT("CompareDirectories: Base='%s', Target='%s'"),
-		*BaseDirectory, *TargetDirectory);
-
-	FHotUpdateDiffReport Report;
-	Report.BaseVersion = BaseDirectory;
-	Report.TargetVersion = TargetDirectory;
-
-	// 扫描基础目录
-	TMap<FString, FHotUpdateAssetDiff> BaseAssets;
-	ScanDirectory(BaseDirectory, bRecursive, BaseAssets);
-
-	// 扫描目标目录
-	TMap<FString, FHotUpdateAssetDiff> TargetAssets;
-	ScanDirectory(TargetDirectory, bRecursive, TargetAssets);
-
-	// 比较差异
-	TSet<FString> AllPaths;
-	for (const auto& Pair : BaseAssets)
-	{
-		AllPaths.Add(Pair.Key);
-	}
-	for (const auto& Pair : TargetAssets)
-	{
-		AllPaths.Add(Pair.Key);
-	}
-
-	for (const FString& Path : AllPaths)
-	{
-		bool bInBase = BaseAssets.Contains(Path);
-		bool bInTarget = TargetAssets.Contains(Path);
-
-		FHotUpdateAssetDiff Diff;
-		Diff.AssetPath = Path;
-
-		if (!bInBase && bInTarget)
-		{
-			// 新增
-			Diff = TargetAssets[Path];
-			Diff.ChangeType = EHotUpdateFileChangeType::Added;
-			Diff.ChangeDescription = FString::Printf(TEXT("新增资源 (%s)"), *FormatFileSize(Diff.NewSize));
-			Report.AddedAssets.Add(Diff);
-		}
-		else if (bInBase && !bInTarget)
-		{
-			// 删除
-			Diff = BaseAssets[Path];
-			Diff.ChangeType = EHotUpdateFileChangeType::Deleted;
-			Diff.ChangeDescription = FString::Printf(TEXT("删除资源 (%s)"), *FormatFileSize(Diff.OldSize));
-			Report.DeletedAssets.Add(Diff);
-		}
-		else if (bInBase && bInTarget)
-		{
-			// 比较Hash
-			const FHotUpdateAssetDiff& BaseDiff = BaseAssets[Path];
-			const FHotUpdateAssetDiff& TargetDiff = TargetAssets[Path];
-
-			// 注意：ScanDirectory 扫描结果存储在 NewHash 和 NewSize 字段
-			// 所以比较时应该用 BaseDiff.NewHash 和 TargetDiff.NewHash
-			if (BaseDiff.NewHash != TargetDiff.NewHash)
-			{
-				// 修改
-				Diff = TargetDiff;
-				Diff.ChangeType = EHotUpdateFileChangeType::Modified;
-				// OldSize 和 OldHash 应该从 BaseDiff 的 NewSize 和 NewHash 获取
-				Diff.OldSize = BaseDiff.NewSize;
-				Diff.OldHash = BaseDiff.NewHash;
-
-				int64 SizeDiff = Diff.NewSize - Diff.OldSize;
-				FString SizeDiffStr = SizeDiff >= 0
-					? FString::Printf(TEXT("+%s"), *FormatFileSize(SizeDiff))
-					: FString::Printf(TEXT("-%s"), *FormatFileSize(-SizeDiff));
-
-				Diff.ChangeDescription = FString::Printf(TEXT("已修改 (大小变化: %s)"), *SizeDiffStr);
-				Report.ModifiedAssets.Add(Diff);
-			}
-			else
-			{
-				// 未变更
-				Diff.ChangeType = EHotUpdateFileChangeType::Unchanged;
-				Diff.ChangeDescription = TEXT("未变更");
-				Report.UnchangedAssets.Add(Diff);
-			}
-		}
-	}
-
-	UE_LOG(LogHotUpdateEditor, Log, TEXT("CompareDirectories result: Added=%d, Modified=%d, Deleted=%d, Unchanged=%d"),
-		Report.AddedAssets.Num(), Report.ModifiedAssets.Num(), Report.DeletedAssets.Num(), Report.UnchangedAssets.Num());
-
-	OnDiffComplete.Broadcast(Report);
-	return Report;
-}
-
-FHotUpdateDiffReport UHotUpdateDiffTool::CompareManifests(
+FHotUpdateDiffReport FHotUpdateDiffTool::CompareManifests(
 	const FString& BaseManifestPath,
 	const FString& TargetManifestPath)
 {
@@ -259,78 +153,8 @@ FHotUpdateDiffReport UHotUpdateDiffTool::CompareManifests(
 	return Report;
 }
 
-FHotUpdateDiffReport UHotUpdateDiffTool::ComparePakFiles(
-	const FString& BasePakPath,
-	const FString& TargetPakPath)
-{
-	FHotUpdateDiffReport Report;
-	Report.BaseVersion = BasePakPath;
-	Report.TargetVersion = TargetPakPath;
 
-	// 从 Pak 文件中提取文件名和 Hash
-	TMap<FString, FString> BaseFileHashes = GetPakFileHashes(BasePakPath);
-	TMap<FString, FString> TargetFileHashes = GetPakFileHashes(TargetPakPath);
-
-	// 合并所有路径
-	TSet<FString> AllPaths;
-	for (const auto& Pair : BaseFileHashes)
-	{
-		AllPaths.Add(Pair.Key);
-	}
-	for (const auto& Pair : TargetFileHashes)
-	{
-		AllPaths.Add(Pair.Key);
-	}
-
-	// 比较差异
-	for (const FString& Path : AllPaths)
-	{
-		bool bInBase = BaseFileHashes.Contains(Path);
-		bool bInTarget = TargetFileHashes.Contains(Path);
-
-		FHotUpdateAssetDiff Diff;
-		Diff.AssetPath = Path;
-		Diff.AssetType = GetAssetTypeFromExtension(FPaths::GetExtension(Path));
-
-		if (!bInBase && bInTarget)
-		{
-			Diff.ChangeType = EHotUpdateFileChangeType::Added;
-			Diff.NewHash = TargetFileHashes[Path];
-			Diff.ChangeDescription = TEXT("新增资源");
-			Report.AddedAssets.Add(Diff);
-		}
-		else if (bInBase && !bInTarget)
-		{
-			Diff.ChangeType = EHotUpdateFileChangeType::Deleted;
-			Diff.OldHash = BaseFileHashes[Path];
-			Diff.ChangeDescription = TEXT("删除资源");
-			Report.DeletedAssets.Add(Diff);
-		}
-		else if (bInBase && bInTarget)
-		{
-			if (BaseFileHashes[Path] != TargetFileHashes[Path])
-			{
-				Diff.ChangeType = EHotUpdateFileChangeType::Modified;
-				Diff.OldHash = BaseFileHashes[Path];
-				Diff.NewHash = TargetFileHashes[Path];
-				Diff.ChangeDescription = TEXT("已修改");
-				Report.ModifiedAssets.Add(Diff);
-			}
-			else
-			{
-				Diff.ChangeType = EHotUpdateFileChangeType::Unchanged;
-				Diff.ChangeDescription = TEXT("未变更");
-				Report.UnchangedAssets.Add(Diff);
-			}
-		}
-	}
-
-	OnDiffComplete.Broadcast(Report);
-	return Report;
-}
-
-
-FName UHotUpdateDiffTool::GetAssetIconName(const FString& AssetPath)
+FName FHotUpdateDiffTool::GetAssetIconName(const FString& AssetPath)
 {
 	FString Extension = FPaths::GetExtension(AssetPath).ToLower();
 
@@ -355,7 +179,7 @@ FName UHotUpdateDiffTool::GetAssetIconName(const FString& AssetPath)
 	return FName("ClassIcon.Object");
 }
 
-void UHotUpdateDiffTool::ScanDirectory(
+void FHotUpdateDiffTool::ScanDirectory(
 	const FString& Directory,
 	bool bIncludeHiddenFiles,
 	TMap<FString, FHotUpdateAssetDiff>& OutAssets)
@@ -410,7 +234,7 @@ void UHotUpdateDiffTool::ScanDirectory(
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("ScanDirectory: Added %d assets from '%s'"), OutAssets.Num(), *NormalizedDir);
 }
 
-bool UHotUpdateDiffTool::ParseManifestFile(
+bool FHotUpdateDiffTool::ParseManifestFile(
 	const FString& ManifestPath,
 	TMap<FString, FHotUpdateManifestEntry>& OutEntries)
 {
@@ -426,7 +250,7 @@ bool UHotUpdateDiffTool::ParseManifestFile(
 
 	if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
 	{
-		UE_LOG(LogHotUpdateEditor, Error, TEXT("ParseManifestFile: Cannot parse JSON '%s'"), *ManifestPath);
+		UE_LOG(LogHotUpdateEditor, Error, TEXT("ParseManifestFile: Cannot parse JSON '%s"), *ManifestPath);
 		return false;
 	}
 
@@ -484,7 +308,7 @@ bool UHotUpdateDiffTool::ParseManifestFile(
 	return false;
 }
 
-TMap<FString, FString> UHotUpdateDiffTool::GetPakFileHashes(const FString& PakPath)
+TMap<FString, FString> FHotUpdateDiffTool::GetPakFileHashes(const FString& PakPath)
 {
 	TMap<FString, FString> FileHashes;
 
@@ -530,7 +354,7 @@ TMap<FString, FString> UHotUpdateDiffTool::GetPakFileHashes(const FString& PakPa
 	return FileHashes;
 }
 
-FString UHotUpdateDiffTool::GetAssetTypeFromExtension(const FString& Extension)
+FString FHotUpdateDiffTool::GetAssetTypeFromExtension(const FString& Extension)
 {
 	FString Ext = Extension.ToLower();
 
@@ -553,7 +377,7 @@ FString UHotUpdateDiffTool::GetAssetTypeFromExtension(const FString& Extension)
 	return ExtensionToType.Contains(Ext) ? ExtensionToType[Ext] : TEXT("Unknown");
 }
 
-FString UHotUpdateDiffTool::FormatFileSize(int64 Size)
+FString FHotUpdateDiffTool::FormatFileSize(int64 Size)
 {
 	if (Size < 1024)
 	{
@@ -573,7 +397,7 @@ FString UHotUpdateDiffTool::FormatFileSize(int64 Size)
 	}
 }
 
-FString UHotUpdateDiffTool::FindFileManifestPath(const FString& VersionDirectory)
+FString FHotUpdateDiffTool::FindFileManifestPath(const FString& VersionDirectory)
 {
 	// 规范化目录路径
 	FString NormalizedDir = VersionDirectory;

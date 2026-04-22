@@ -8,16 +8,12 @@
 /**
  * 自定义打包构建器
  * 独立于热更新打包流程，只 Cook 指定资源，不做版本差异对比
- * 继承 TSharedFromThis 以支持异步任务中的弱引用安全访问
  */
 class HOTUPDATEEDITOR_API FHotUpdateCustomPackageBuilder : public TSharedFromThis<FHotUpdateCustomPackageBuilder>
 {
 public:
 	FHotUpdateCustomPackageBuilder();
-
-	/** 同步构建自定义包 */
-	FHotUpdateCustomPackageResult BuildCustomPackage(const FHotUpdateCustomPackageConfig& Config);
-
+	
 	/** 异步构建自定义包 */
 	void BuildCustomPackageAsync(const FHotUpdateCustomPackageConfig& Config);
 
@@ -41,7 +37,7 @@ private:
 	TArray<FString> ResolveUassetPathsForCook() const;
 
 	/** 将 uasset 磁盘路径反向解析为 UE 包名 */
-	FString ResolveDiskPathToPackageName(const FString& DiskPath) const;
+	static FString ResolveDiskPathToPackageName(const FString& DiskPath);
 
 	/** 确定非资产文件在 Pak 内的挂载路径 */
 	FString DetermineNonAssetPakPath(const FString& DiskPath) const;

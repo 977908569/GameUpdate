@@ -6,41 +6,20 @@
 #include "HotUpdateEditorTypes.h"
 #include "HAL/CriticalSection.h"
 #include <atomic>
-#include "HotUpdateIoStoreBuilder.generated.h"
 
 /**
  * IoStore 构建进度
  */
-USTRUCT(BlueprintType)
 struct HOTUPDATEEDITOR_API FHotUpdateIoStoreProgress
 {
-	GENERATED_BODY()
-
-	UPROPERTY(BlueprintReadOnly, Category = "Progress")
 	FString CurrentStage;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Progress")
 	FString CurrentFile;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Progress")
 	int32 ProcessedFiles;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Progress")
 	int32 TotalFiles;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Progress")
 	int64 ProcessedBytes;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Progress")
 	int64 TotalBytes;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Progress")
 	bool bIsComplete;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Progress")
 	bool bHasError;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Progress")
 	FString ErrorMessage;
 
 	FHotUpdateIoStoreProgress()
@@ -66,14 +45,12 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnIoStoreCompleteDelegate, const FHotUpdate
 /**
  * IoStore 构建器
  * 使用 UE5 IoStore API 创建 .utoc/.ucas 容器文件
+ * 继承 TSharedFromThis 以支持异步任务中的弱引用安全访问
  */
-UCLASS(BlueprintType)
-class HOTUPDATEEDITOR_API UHotUpdateIoStoreBuilder : public UObject
+class HOTUPDATEEDITOR_API FHotUpdateIoStoreBuilder : public TSharedFromThis<FHotUpdateIoStoreBuilder>
 {
-	GENERATED_BODY()
-
 public:
-	UHotUpdateIoStoreBuilder();
+	FHotUpdateIoStoreBuilder();
 
 	/**
 	 * 构建 IoStore 容器
@@ -82,7 +59,6 @@ public:
 	 * @param Config IoStore 配置
 	 * @return 构建结果
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Hot Update|IoStore")
 	FHotUpdateIoStoreResult BuildIoStoreContainer(
 		const TMap<FString, FString>& AssetPathToDiskPath,
 		const FString& OutputPath,
@@ -91,7 +67,6 @@ public:
 	/**
 	 * 异步构建 IoStore 容器
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Hot Update|IoStore")
 	void BuildIoStoreContainerAsync(
 		const TMap<FString, FString>& AssetPathToDiskPath,
 		const FString& OutputPath,
@@ -100,19 +75,16 @@ public:
 	/**
 	 * 取消构建
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Hot Update|IoStore")
 	void CancelBuild();
 
 	/**
 	 * 是否正在构建
 	 */
-	UFUNCTION(BlueprintPure, Category = "Hot Update|IoStore")
 	bool IsBuilding() const { return bIsBuilding; }
 
 	/**
 	 * 获取当前进度
 	 */
-	UFUNCTION(BlueprintPure, Category = "Hot Update|IoStore")
 	FHotUpdateIoStoreProgress GetCurrentProgress() const;
 
 	/**

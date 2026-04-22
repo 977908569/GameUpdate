@@ -1,7 +1,5 @@
 // Copyright czm. All Rights Reserved.
-
 #pragma once
-
 #include "CoreMinimal.h"
 #include "HotUpdateEditorTypes.h"
 
@@ -75,28 +73,6 @@ public:
 	 * @return 标准化的资源路径
 	 */
 	static FString NormalizeAssetPath(const FString& Path);
-
-	/**
-	 * 递归收集资源包及其所有引用者（用于确定资源集合）
-	 * @param InAssetRegistry AssetRegistry 实例
-	 * @param PackageName 起始包名
-	 * @param OutPackages 输出包名集合（包含所有递归收集的包）
-	 */
-	static void CollectPackageAndAllReferencers(
-		IAssetRegistry& InAssetRegistry,
-		const FString& PackageName,
-		TSet<FString>& OutPackages);
-
-	/**
-	 * 递归收集资源包及其所有依赖项（用于 Cook 资源收集）
-	 * @param InAssetRegistry AssetRegistry 实例
-	 * @param PackageName 起始包名
-	 * @param OutPackages 输出包名集合（包含所有递归收集的包）
-	 */
-	static void CollectPackageAndAllDependencies(
-		IAssetRegistry& InAssetRegistry,
-		const FString& PackageName,
-		TSet<FString>& OutPackages);
 
 private:
 	/**

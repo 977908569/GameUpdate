@@ -114,7 +114,7 @@ struct HOTUPDATEEDITOR_API FHotUpdateBaseVersionBuildConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bSkipBuild;
 
-	/// 同步执行模式（用于命令行工具，避免游戏线程阻塞问题）
+	/// 同步执行模式
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bSynchronousMode;
 
@@ -179,9 +179,9 @@ public:
 
 private:
 	/**
-	 * 执行构建（内部实现，支持同步/异步模式）
+	 * 执行构建
 	 */
-	void ExecuteBuildInternal(bool bSynchronous);
+	void ExecuteBuildInternal();
 
 	/**
 	 * 写入最小包配置到临时文件，供 UAT 打包时读取

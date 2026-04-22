@@ -30,7 +30,7 @@ void FHotUpdateAssetFilter::FilterAssets(const TArray<FString>& InAssetPaths, co
 		for (const FString& Asset : WhitelistSet)
 		{
 			TSet<FString> Dependencies;
-			GetDependencies(Asset, AssetRegistry, Config.DependencyStrategy, 0, Dependencies);
+			GetDependencies(Asset, AssetRegistry, Config.DependencyStrategy, Dependencies);
 			FinalWhitelist.Append(Dependencies);
 		}
 		UE_LOG(LogHotUpdateAssetFilter, Log, TEXT("依赖收集后，白名单资产数: %d (添加依赖数: %d)"), FinalWhitelist.Num(), FinalWhitelist.Num() - WhitelistSet.Num());
@@ -197,19 +197,16 @@ void FHotUpdateAssetFilter::GetDependencies(
 	const FString& AssetPath,
 	IAssetRegistry* AssetRegistry,
 	EHotUpdateDependencyStrategy Strategy,
-	int32 MaxDepth,
 	TSet<FString>& OutDependencies)
 {
 	TSet<FString> Visited;
-	GetDependenciesRecursive(AssetPath, AssetRegistry, Strategy, 0, MaxDepth, OutDependencies, Visited);
+	GetDependenciesRecursive(AssetPath, AssetRegistry, Strategy, OutDependencies, Visited);
 }
 
 void FHotUpdateAssetFilter::GetDependenciesRecursive(
 	const FString& AssetPath,
 	IAssetRegistry* AssetRegistry,
 	EHotUpdateDependencyStrategy Strategy,
-	int32 CurrentDepth,
-	int32 MaxDepth,
 	TSet<FString>& OutDependencies,
 	TSet<FString>& Visited)
 {
@@ -224,12 +221,6 @@ void FHotUpdateAssetFilter::GetDependenciesRecursive(
 		return;
 	}
 	Visited.Add(AssetPath);
-
-	// 检查深度限制
-	if (MaxDepth > 0 && CurrentDepth >= MaxDepth)
-	{
-		return;
-	}
 
 	// 根据策略获取依赖
 	TArray<FName> Dependencies;
@@ -261,20 +252,11 @@ void FHotUpdateAssetFilter::GetDependenciesRecursive(
 		{
 			FString DepStr = Dep.ToString();
 
-			// 只处理资产路径：/Game/、/Engine/、插件路径（如 /NNE/、/Water/）
-			// 排除 /Script/ 路径（C++ 类型引用，不是资产）
-			if (!(DepStr.StartsWith(TEXT("/Game/")) || DepStr.StartsWith(TEXT("/Engine/")) ||
-				(DepStr.StartsWith(TEXT("/")) && !DepStr.StartsWith(TEXT("/Script/")))))
-			{
-				continue;
-			}
-
-
 			// 添加到结果
 			OutDependencies.Add(DepStr);
 
 			// 递归获取依赖
-			GetDependenciesRecursive(DepStr, AssetRegistry, Strategy, CurrentDepth + 1, MaxDepth, OutDependencies, Visited);
+			GetDependenciesRecursive(DepStr, AssetRegistry, Strategy, OutDependencies, Visited);
 		}
 	}
 }

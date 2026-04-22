@@ -8,9 +8,7 @@
 #include "HotUpdateIoStoreBuilder.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
-#include "HAL/PlatformFileManager.h"
 #include "Misc/Paths.h"
-#include "Misc/FileHelper.h"
 #include "Misc/PackageName.h"
 
 FHotUpdateCustomPackageBuilder::FHotUpdateCustomPackageBuilder()
@@ -41,7 +39,7 @@ TArray<FString> FHotUpdateCustomPackageBuilder::ResolveUassetPathsForCook() cons
 	return AssetPathsToCook;
 }
 
-FString FHotUpdateCustomPackageBuilder::ResolveDiskPathToPackageName(const FString& DiskPath) const
+FString FHotUpdateCustomPackageBuilder::ResolveDiskPathToPackageName(const FString& DiskPath)
 {
 	FString NormalizedPath = DiskPath;
 	FPaths::NormalizeFilename(NormalizedPath);
@@ -276,7 +274,7 @@ FHotUpdateCustomPackageResult FHotUpdateCustomPackageBuilder::ExecuteBuild(const
 
 	if (AssetDiskPaths.Num() > 0)
 	{
-		UHotUpdateIoStoreBuilder* IoStoreBuilder = NewObject<UHotUpdateIoStoreBuilder>();
+		FHotUpdateIoStoreBuilder IoStoreBuilder;
 
 		FHotUpdateIoStoreConfig IoStoreConfig = Config.IoStoreConfig;
 		IoStoreConfig.bUseIoStore = false;
@@ -288,7 +286,7 @@ FHotUpdateCustomPackageResult FHotUpdateCustomPackageBuilder::ExecuteBuild(const
 
 		FString PatchOutputPath = FPaths::Combine(PaksDir, IoStoreConfig.ContainerName);
 
-		FHotUpdateIoStoreResult IoStoreResult = IoStoreBuilder->BuildIoStoreContainer(
+		FHotUpdateIoStoreResult IoStoreResult = IoStoreBuilder.BuildIoStoreContainer(
 			AssetDiskPaths, PatchOutputPath, IoStoreConfig);
 
 		if (!IoStoreResult.bSuccess)
@@ -321,17 +319,6 @@ FHotUpdateCustomPackageResult FHotUpdateCustomPackageBuilder::ExecuteBuild(const
 		*OutputDir, ValidAssetPaths.Num(), Result.PatchSize);
 
 	return Result;
-}
-
-FHotUpdateCustomPackageResult FHotUpdateCustomPackageBuilder::BuildCustomPackage(const FHotUpdateCustomPackageConfig& Config)
-{
-	UE_LOG(LogHotUpdateEditor, Log, TEXT("BuildCustomPackage (同步) 开始调用"));
-
-	CurrentConfig = Config;
-
-	TArray<FString> AssetPathsToCook = ResolveUassetPathsForCook();
-
-	return ExecuteBuild(Config, AssetPathsToCook);
 }
 
 void FHotUpdateCustomPackageBuilder::BuildCustomPackageAsync(const FHotUpdateCustomPackageConfig& Config)
@@ -454,9 +441,7 @@ void FHotUpdateCustomPackageBuilder::UpdateProgress(const FString& Stage, const 
 		CurrentProgress.bIsComplete = (ProcessedFiles >= TotalFiles && TotalFiles > 0);
 
 		// 计算进度百分比
-		CurrentProgress.ProgressPercent = TotalFiles > 0
-			? (float)ProcessedFiles / TotalFiles * 100.0f
-			: 0.0f;
+		CurrentProgress.ProgressPercent = TotalFiles > 0 ? static_cast<float>(ProcessedFiles) / TotalFiles * 100.0f : 0.0f;
 
 		// 设置阶段描述
 		CurrentProgress.StageDescription = FText::FromString(Stage);
@@ -464,13 +449,21 @@ void FHotUpdateCustomPackageBuilder::UpdateProgress(const FString& Stage, const 
 		ProgressCopy = CurrentProgress;
 	}
 
-	TWeakPtr<FHotUpdateCustomPackageBuilder> WeakBuilder(AsShared());
-	AsyncTask(ENamedThreads::GameThread, [WeakBuilder, ProgressCopy]()
+	// 同步模式下直接广播
+	if (CurrentConfig.bSynchronousMode)
 	{
-		TSharedPtr<FHotUpdateCustomPackageBuilder> PinnedBuilder = WeakBuilder.Pin();
-		if (PinnedBuilder.IsValid())
+		OnProgress.Broadcast(ProgressCopy);
+	}
+	else
+	{
+		// 异步模式下通过 AsyncTask 在游戏线程广播
+		TWeakPtr<FHotUpdateCustomPackageBuilder> WeakBuilder(AsShared());
+		AsyncTask(ENamedThreads::GameThread, [WeakBuilder, ProgressCopy]()
 		{
-			PinnedBuilder->OnProgress.Broadcast(ProgressCopy);
-		}
-	});
+			if (TSharedPtr<FHotUpdateCustomPackageBuilder> PinnedBuilder = WeakBuilder.Pin(); PinnedBuilder.IsValid())
+			{
+				PinnedBuilder->OnProgress.Broadcast(ProgressCopy);
+			}
+		});
+	}
 }

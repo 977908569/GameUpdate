@@ -303,8 +303,8 @@ FReply SHotUpdateVersionDiffPanel::OnLoadVersionsClicked()
 	}
 
 	// 在版本目录中查找 filemanifest.json
-	FString BaseManifestPath = UHotUpdateDiffTool::FindFileManifestPath(BaseVersionPath);
-	FString TargetManifestPath = UHotUpdateDiffTool::FindFileManifestPath(TargetVersionPath);
+	FString BaseManifestPath = FHotUpdateDiffTool::FindFileManifestPath(BaseVersionPath);
+	FString TargetManifestPath = FHotUpdateDiffTool::FindFileManifestPath(TargetVersionPath);
 
 	if (BaseManifestPath.IsEmpty())
 	{
@@ -319,8 +319,8 @@ FReply SHotUpdateVersionDiffPanel::OnLoadVersionsClicked()
 	}
 
 	// 基于 filemanifest.json 进行版本比较
-	UHotUpdateDiffTool* DiffTool = NewObject<UHotUpdateDiffTool>();
-	DiffReport = DiffTool->CompareManifests(BaseManifestPath, TargetManifestPath);
+	FHotUpdateDiffTool DiffTool;
+		DiffReport = DiffTool.CompareManifests(BaseManifestPath, TargetManifestPath);
 
 	GenerateTreeNodes();
 	bIsLoaded = true;
@@ -331,7 +331,7 @@ FReply SHotUpdateVersionDiffPanel::OnLoadVersionsClicked()
 		DiffReport.ModifiedAssets.Num(),
 		DiffReport.DeletedAssets.Num(),
 		DiffReport.UnchangedAssets.Num(),
-		*UHotUpdateDiffTool::FormatFileSize(DiffReport.GetTotalSizeDifference())
+		*FHotUpdateDiffTool::FormatFileSize(DiffReport.GetTotalSizeDifference())
 	);
 	StatisticsText->SetText(FText::FromString(StatsText));
 
@@ -587,7 +587,7 @@ const FSlateBrush* SHotUpdateVersionDiffPanel::GetTreeNodeIcon(TSharedPtr<FDiffT
 		return FAppStyle::GetBrush("ContentBrowser.AssetTreeFolderClosed");
 	}
 
-	return FAppStyle::GetBrush(UHotUpdateDiffTool::GetAssetIconName(Node->DiffInfo.AssetPath));
+	return FAppStyle::GetBrush(FHotUpdateDiffTool::GetAssetIconName(Node->DiffInfo.AssetPath));
 }
 
 FSlateColor SHotUpdateVersionDiffPanel::GetTreeNodeColor(TSharedPtr<FDiffTreeNode> Node) const
@@ -700,13 +700,13 @@ void SHotUpdateVersionDiffPanel::UpdateDetailsPanel(TSharedPtr<FDiffTreeNode> No
 
 		if (Node->ChangeType != EHotUpdateFileChangeType::Added)
 		{
-			AddDetailRow(TEXT("原大小"), UHotUpdateDiffTool::FormatFileSize(Node->DiffInfo.OldSize));
+			AddDetailRow(TEXT("原大小"), FHotUpdateDiffTool::FormatFileSize(Node->DiffInfo.OldSize));
 			AddDetailRow(TEXT("原Hash"), Node->DiffInfo.OldHash);
 		}
 
 		if (Node->ChangeType != EHotUpdateFileChangeType::Deleted)
 		{
-			AddDetailRow(TEXT("新大小"), UHotUpdateDiffTool::FormatFileSize(Node->DiffInfo.NewSize));
+			AddDetailRow(TEXT("新大小"), FHotUpdateDiffTool::FormatFileSize(Node->DiffInfo.NewSize));
 			AddDetailRow(TEXT("新Hash"), Node->DiffInfo.NewHash);
 		}
 

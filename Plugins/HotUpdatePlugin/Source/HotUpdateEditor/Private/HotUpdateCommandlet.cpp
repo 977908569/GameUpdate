@@ -228,7 +228,7 @@ int32 UHotUpdateCommandlet::ExecuteBasePackage()
 	Config.Platform = ParsePlatform(PlatformStr);
 	Config.BuildConfiguration = bIsShipping ? EHotUpdateBuildConfiguration::Shipping : EHotUpdateBuildConfiguration::Development;
 	Config.bSkipBuild = bSkipBuild;
-	Config.bSynchronousMode = true;  // 命令行模式使用同步执行
+	Config.bSynchronousMode = true;
 
 	// 配置 Android 纹理格式
 	if (!TextureFormatStr.IsEmpty() && Config.Platform == EHotUpdatePlatform::Android)
@@ -335,7 +335,7 @@ int32 UHotUpdateCommandlet::ExecutePatchPackage()
 	if (ManifestPath.IsEmpty())
 	{
 		// 优先从 HotUpdateVersions 目录查找
-		FString VersionDir = UHotUpdateVersionManager::GetVersionDir(BaseVersion, ParsePlatform(PlatformStr), ParseTextureFormat(TextureFormatStr));
+		FString VersionDir = FHotUpdateVersionManager::GetVersionDir(BaseVersion, ParsePlatform(PlatformStr), ParseTextureFormat(TextureFormatStr));
 		ManifestPath = FPaths::Combine(VersionDir, TEXT("manifest.json"));
 
 		if (!FPaths::FileExists(*ManifestPath))
@@ -364,6 +364,7 @@ int32 UHotUpdateCommandlet::ExecutePatchPackage()
 	Config.bSkipCook = bSkipCook;
 	Config.bIncrementalCook = bIncrementalCook;
 	Config.bSkipBuild = bSkipBuild;
+	Config.bSynchronousMode = true;
 
 	// 配置输出目录
 	if (!OutputDir.IsEmpty())

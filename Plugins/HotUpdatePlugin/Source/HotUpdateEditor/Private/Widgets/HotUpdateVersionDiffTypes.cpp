@@ -74,7 +74,7 @@ const FSlateBrush* SHotUpdateDiffTreeItem::GetIcon() const
 		return FAppStyle::GetBrush("ContentBrowser.AssetTreeFolderClosed");
 	}
 
-	return FAppStyle::GetBrush(UHotUpdateDiffTool::GetAssetIconName(Item->DiffInfo.AssetPath));
+	return FAppStyle::GetBrush(FHotUpdateDiffTool::GetAssetIconName(Item->DiffInfo.AssetPath));
 }
 
 FSlateColor SHotUpdateDiffTreeItem::GetColorAndOpacity() const
@@ -135,7 +135,7 @@ FText SHotUpdateDiffTreeItem::GetSizeText() const
 	if (!Item.IsValid() || Item->bIsFolder) return FText::GetEmpty();
 
 	int64 Size = Item->DiffInfo.NewSize > 0 ? Item->DiffInfo.NewSize : Item->DiffInfo.OldSize;
-	return FText::FromString(UHotUpdateDiffTool::FormatFileSize(Size));
+	return FText::FromString(FHotUpdateDiffTool::FormatFileSize(Size));
 }
 
 #undef LOCTEXT_NAMESPACE

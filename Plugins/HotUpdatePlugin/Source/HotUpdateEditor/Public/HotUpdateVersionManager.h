@@ -5,30 +5,22 @@
 #include "CoreMinimal.h"
 #include "HotUpdateEditorTypes.h"
 #include "HAL/CriticalSection.h"
-#include "HotUpdateVersionManager.generated.h"
 
 /**
  * 版本链配置
  */
-USTRUCT(BlueprintType)
 struct HOTUPDATEEDITOR_API FHotUpdateVersionChain
 {
-	GENERATED_BODY()
-
 	/// 基础版本号
-	UPROPERTY(BlueprintReadOnly, Category = "VersionChain")
 	FString BaseVersion;
 
 	/// Patch 版本链
-	UPROPERTY(BlueprintReadOnly, Category = "VersionChain")
 	TArray<FString> PatchChain;
 
 	/// 当前最新版本
-	UPROPERTY(BlueprintReadOnly, Category = "VersionChain")
 	FString CurrentVersion;
 
 	/// 平台
-	UPROPERTY(BlueprintReadOnly, Category = "VersionChain")
 	EHotUpdatePlatform Platform;
 
 	FHotUpdateVersionChain()
@@ -41,61 +33,48 @@ struct HOTUPDATEEDITOR_API FHotUpdateVersionChain
  * 版本管理器
  * 管理基础包和更新包的版本链
  */
-UCLASS(BlueprintType)
-class HOTUPDATEEDITOR_API UHotUpdateVersionManager : public UObject
+class HOTUPDATEEDITOR_API FHotUpdateVersionManager
 {
-	GENERATED_BODY()
-
 public:
-	UHotUpdateVersionManager();
-
 	/**
 	 * 注册版本
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Hot Update|Version")
 	bool RegisterVersion(const FHotUpdateEditorVersionInfo& VersionInfo);
 
 	/**
 	 * 注销版本
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Hot Update|Version")
 	bool UnregisterVersion(const FString& VersionString, EHotUpdatePlatform Platform);
 
 	/**
 	 * 获取版本历史
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Hot Update|Version")
 	TArray<FHotUpdateEditorVersionInfo> GetVersionHistory(EHotUpdatePlatform Platform);
 
 	/**
 	 * 获取版本信息
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Hot Update|Version")
 	FHotUpdateEditorVersionInfo GetVersionInfo(const FString& VersionString, EHotUpdatePlatform Platform);
 
 	/**
 	 * 获取版本链
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Hot Update|Version")
 	FHotUpdateVersionChain GetVersionChain(const FString& BaseVersion, EHotUpdatePlatform Platform);
 
 	/**
 	 * 获取最新版本
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Hot Update|Version")
 	FString GetLatestVersion(EHotUpdatePlatform Platform);
 
 	/**
 	 * 获取基础版本列表
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Hot Update|Version")
 	TArray<FString> GetBaseVersions(EHotUpdatePlatform Platform);
 
 	/**
 	 * 获取所有可选择版本（用于版本选择器）
 	 * 包括基础版本和热更版本
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Hot Update|Version")
 	TArray<FHotUpdateVersionSelectItem> GetSelectableVersions(EHotUpdatePlatform Platform);
 
 	/**
@@ -145,7 +124,7 @@ private:
 	TMap<FString, TMap<EHotUpdatePlatform, FHotUpdateEditorVersionInfo>> VersionRegistry;
 
 	/// 注册表是否已加载
-	bool bRegistryLoaded;
+	bool bRegistryLoaded = false;
 
 	/// 注册表访问锁
 	mutable FCriticalSection RegistryLock;

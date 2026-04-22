@@ -188,7 +188,7 @@ void FHotUpdateBaseVersionBuilder::BuildBaseVersion(const FHotUpdateBaseVersionB
 				FString PackageName = FPackageName::FilenameToLongPackageName(PackageFile);
 				// 收集白名单资源及其依赖（依赖应进入首包）
 				TSet<FString> CollectedPackages;
-				FHotUpdatePackagingSettingsHelper::CollectPackageAndAllDependencies(*AssetRegistry, PackageName, CollectedPackages);
+				FHotUpdateAssetFilter::GetDependencies(PackageName, AssetRegistry, EHotUpdateDependencyStrategy::IncludeAll, CollectedPackages);
 				WhitelistSet.Append(CollectedPackages);
 			}
 		}
@@ -237,7 +237,7 @@ void FHotUpdateBaseVersionBuilder::BuildBaseVersion(const FHotUpdateBaseVersionB
 
 	if (CurrentConfig.bSynchronousMode)
 	{
-		ExecuteBuildInternal(true);
+		ExecuteBuildInternal();
 	}
 	else
 	{
@@ -246,7 +246,7 @@ void FHotUpdateBaseVersionBuilder::BuildBaseVersion(const FHotUpdateBaseVersionB
 		{
 			TSharedPtr<FHotUpdateBaseVersionBuilder> StrongThis = WeakThis.Pin();
 			if (!StrongThis.IsValid()) return;
-			StrongThis->ExecuteBuildInternal(false);
+			StrongThis->ExecuteBuildInternal();
 		});
 	}
 }
@@ -256,7 +256,7 @@ void FHotUpdateBaseVersionBuilder::CancelBuild()
 	bIsCancelled = true;
 }
 
-void FHotUpdateBaseVersionBuilder::ExecuteBuildInternal(bool bSynchronous)
+void FHotUpdateBaseVersionBuilder::ExecuteBuildInternal()
 {
 	// 清空上次构建的缓存
 	CachedChunkMapping.Empty();
@@ -266,7 +266,7 @@ void FHotUpdateBaseVersionBuilder::ExecuteBuildInternal(bool bSynchronous)
 	Result.VersionString = CurrentConfig.VersionString;
 	Result.Platform = CurrentConfig.Platform;
 
-	UE_LOG(LogHotUpdateEditor, Log, TEXT("开始构建基础版本（%s）: %s, 平台: %s"), bSynchronous ? TEXT("同步") : TEXT("异步"),
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("开始构建基础版本（%s）: %s, 平台: %s"), CurrentConfig.bSynchronousMode ? TEXT("同步") : TEXT("异步"),
 		*CurrentConfig.VersionString, *HotUpdateUtils::GetPlatformDirectoryName(CurrentConfig.Platform));
 
 	// 1. 确定输出目录
@@ -312,7 +312,7 @@ void FHotUpdateBaseVersionBuilder::ExecuteBuildInternal(bool bSynchronous)
 		Result.bSuccess = false;
 		Result.ErrorMessage = TEXT("构建已取消");
 		bIsBuilding = false;
-		if (bSynchronous)
+		if (CurrentConfig.bSynchronousMode)
 		{
 			OnBuildComplete.Broadcast(Result);
 		}
@@ -333,7 +333,7 @@ void FHotUpdateBaseVersionBuilder::ExecuteBuildInternal(bool bSynchronous)
 		Result.bSuccess = false;
 		Result.ErrorMessage = FString::Printf(TEXT("项目打包失败: %s"), *ErrorMsg);
 		bIsBuilding = false;
-		if (bSynchronous)
+		if (CurrentConfig.bSynchronousMode)
 		{
 			OnBuildComplete.Broadcast(Result);
 		}
@@ -357,7 +357,7 @@ void FHotUpdateBaseVersionBuilder::ExecuteBuildInternal(bool bSynchronous)
 		Result.bSuccess = false;
 		Result.ErrorMessage = TEXT("未找到构建输出文件");
 		bIsBuilding = false;
-		if (bSynchronous)
+		if (CurrentConfig.bSynchronousMode)
 		{
 			OnBuildComplete.Broadcast(Result);
 		}
@@ -376,7 +376,7 @@ void FHotUpdateBaseVersionBuilder::ExecuteBuildInternal(bool bSynchronous)
 	// 5. 保存资源 Hash 清单
 	UpdateProgress(TEXT("保存资源清单"), 0.9f, TEXT("正在保存资源Hash清单..."));
 
-	if (bSynchronous)
+	if (CurrentConfig.bSynchronousMode)
 	{
 		if (!SaveResourceHashesInGameThread())
 		{
@@ -410,14 +410,14 @@ void FHotUpdateBaseVersionBuilder::ExecuteBuildInternal(bool bSynchronous)
 
 	Result.bSuccess = true;
 	Result.ResourceHashPath = FPaths::Combine(
-		UHotUpdateVersionManager::GetVersionDir(CurrentConfig.VersionString, CurrentConfig.Platform, CurrentConfig.AndroidTextureFormat),
+		FHotUpdateVersionManager::GetVersionDir(CurrentConfig.VersionString, CurrentConfig.Platform, CurrentConfig.AndroidTextureFormat),
 		TEXT("resources_hash.json"));
 
 	bIsBuilding = false;
 
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("基础版本构建成功:%s"), *Result.ExecutablePath);
 
-	if (bSynchronous)
+	if (CurrentConfig.bSynchronousMode)
 	{
 		OnBuildComplete.Broadcast(Result);
 	}
@@ -509,7 +509,7 @@ FString FHotUpdateBaseVersionBuilder::GenerateUATCommand()
 		Params += TEXT(" -MinimalPackage");
 		// 热更资源输出目录（pakchunk1+ 移到此目录，与 manifest 同级）
 		// 传版本根目录（不含平台），StripExtraPakChunks 会将 staging 子目录结构保留
-		FString HotUpdatePaksDir = UHotUpdateVersionManager::GetVersionDir(CurrentConfig.VersionString, CurrentConfig.Platform, CurrentConfig.AndroidTextureFormat) / TEXT("Paks");
+		FString HotUpdatePaksDir = FHotUpdateVersionManager::GetVersionDir(CurrentConfig.VersionString, CurrentConfig.Platform, CurrentConfig.AndroidTextureFormat) / TEXT("Paks");
 		FPaths::NormalizeDirectoryName(HotUpdatePaksDir);
 		Params += FString::Printf(TEXT(" -HotUpdateOutputDir=\"%s\""), *HotUpdatePaksDir);
 		// Write config to temp file for cooking process to read
@@ -866,7 +866,7 @@ bool FHotUpdateBaseVersionBuilder::SaveResourceHashesInGameThread()
 	}
 
 	// 2. 收集 IoStore 容器文件信息
-	FString VersionDir = UHotUpdateVersionManager::GetVersionDir(CurrentConfig.VersionString, CurrentConfig.Platform, CurrentConfig.AndroidTextureFormat);
+	FString VersionDir = FHotUpdateVersionManager::GetVersionDir(CurrentConfig.VersionString, CurrentConfig.Platform, CurrentConfig.AndroidTextureFormat);
 	FPaths::NormalizeDirectoryName(VersionDir);
 	IPlatformFile::GetPlatformPhysical().CreateDirectoryTree(*VersionDir);
 
@@ -910,7 +910,7 @@ bool FHotUpdateBaseVersionBuilder::SaveResourceHashesInGameThread()
 	}
 
 	// 6. 注册版本信息
-	UHotUpdateVersionManager* VersionManager = NewObject<UHotUpdateVersionManager>();
+	FHotUpdateVersionManager VersionManager;
 	FHotUpdateEditorVersionInfo VersionInfo;
 	VersionInfo.VersionString = CurrentConfig.VersionString;
 	VersionInfo.PackageKind = EHotUpdatePackageKind::Base;
@@ -919,7 +919,7 @@ bool FHotUpdateBaseVersionBuilder::SaveResourceHashesInGameThread()
 	VersionInfo.ManifestPath = FPaths::Combine(VersionDir, TEXT("manifest.json"));
 	VersionInfo.AssetCount = BaseAssets.Num() + PatchAssets.Num();
 
-	VersionManager->RegisterVersion(VersionInfo);
+	VersionManager.RegisterVersion(VersionInfo);
 
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("版本注册成功: %s"), *CurrentConfig.VersionString);
 
@@ -1227,13 +1227,21 @@ void FHotUpdateBaseVersionBuilder::UpdateProgress(const FString& Stage, float Pe
 	Progress.ProgressPercent = Percent;
 	Progress.StatusMessage = Message;
 
-	// 在游戏线程广播
-	AsyncTask(ENamedThreads::GameThread, [WeakThis = TWeakPtr<FHotUpdateBaseVersionBuilder>(AsShared()), Progress]()
+	// 同步模式下直接广播（栈对象不能调用 AsShared()）
+	if (CurrentConfig.bSynchronousMode)
 	{
-		TSharedPtr<FHotUpdateBaseVersionBuilder> StrongThis = WeakThis.Pin();
-		if (!StrongThis.IsValid()) return;
-		StrongThis->OnBuildProgress.Broadcast(Progress);
-	});
+		OnBuildProgress.Broadcast(Progress);
+	}
+	else
+	{
+		// 异步模式下通过 AsyncTask 在游戏线程广播
+		AsyncTask(ENamedThreads::GameThread, [WeakThis = TWeakPtr<FHotUpdateBaseVersionBuilder>(AsShared()), Progress]()
+		{
+			TSharedPtr<FHotUpdateBaseVersionBuilder> StrongThis = WeakThis.Pin();
+			if (!StrongThis.IsValid()) return;
+			StrongThis->OnBuildProgress.Broadcast(Progress);
+		});
+	}
 }
 
 

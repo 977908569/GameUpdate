@@ -279,7 +279,7 @@ TSharedRef<SWidget> SHotUpdatePakViewerPanel::CreateStatusBar()
 					return FText::Format(
 						LOCTEXT("PakStats", "文件数: {0} | 总大小: {1}"),
 						FText::AsNumber(CurrentFileCount),
-						FText::FromString(UHotUpdateDiffTool::FormatFileSize(CurrentTotalSize))
+						FText::FromString(FHotUpdateDiffTool::FormatFileSize(CurrentTotalSize))
 					);
 				})
 				.Font(FHotUpdateEditorStyle::GetSmallFont())
@@ -422,7 +422,7 @@ TSharedRef<ITableRow> SHotUpdatePakViewerPanel::OnGenerateContentListRow(TShared
 			.Padding(4, 2)
 			[
 				SNew(STextBlock)
-				.Text(FText::FromString(UHotUpdateDiffTool::FormatFileSize(Entry.UncompressedSize)))
+				.Text(FText::FromString(FHotUpdateDiffTool::FormatFileSize(Entry.UncompressedSize)))
 				.Font(FHotUpdateEditorStyle::GetSmallFont())
 				.ColorAndOpacity(FHotUpdateEditorStyle::GetTextSecondaryColor())
 			]
@@ -434,7 +434,7 @@ TSharedRef<ITableRow> SHotUpdatePakViewerPanel::OnGenerateContentListRow(TShared
 			.Padding(4, 2)
 			[
 				SNew(STextBlock)
-				.Text(FText::FromString(UHotUpdateDiffTool::FormatFileSize(Entry.CompressedSize)))
+				.Text(FText::FromString(FHotUpdateDiffTool::FormatFileSize(Entry.CompressedSize)))
 				.Font(FHotUpdateEditorStyle::GetSmallFont())
 				.ColorAndOpacity(Entry.bIsCompressed ? FHotUpdateEditorStyle::GetAddedColor() : FHotUpdateEditorStyle::GetTextSecondaryColor())
 			]

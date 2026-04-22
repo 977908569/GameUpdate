@@ -8,12 +8,7 @@
 #include "Misc/Paths.h"
 #include "JsonObjectConverter.h"
 
-UHotUpdateVersionManager::UHotUpdateVersionManager()
-	: bRegistryLoaded(false)
-{
-}
-
-bool UHotUpdateVersionManager::RegisterVersion(const FHotUpdateEditorVersionInfo& VersionInfo)
+bool FHotUpdateVersionManager::RegisterVersion(const FHotUpdateEditorVersionInfo& VersionInfo)
 {
 	if (VersionInfo.VersionString.IsEmpty())
 	{
@@ -36,7 +31,7 @@ bool UHotUpdateVersionManager::RegisterVersion(const FHotUpdateEditorVersionInfo
 	return SaveVersionRegistry();
 }
 
-bool UHotUpdateVersionManager::UnregisterVersion(const FString& VersionString, EHotUpdatePlatform Platform)
+bool FHotUpdateVersionManager::UnregisterVersion(const FString& VersionString, EHotUpdatePlatform Platform)
 {
 	if (VersionString.IsEmpty())
 	{
@@ -66,7 +61,7 @@ bool UHotUpdateVersionManager::UnregisterVersion(const FString& VersionString, E
 	return SaveVersionRegistry();
 }
 
-TArray<FHotUpdateEditorVersionInfo> UHotUpdateVersionManager::GetVersionHistory(EHotUpdatePlatform Platform)
+TArray<FHotUpdateEditorVersionInfo> FHotUpdateVersionManager::GetVersionHistory(EHotUpdatePlatform Platform)
 {
 	FScopeLock Lock(&RegistryLock);
 
@@ -95,7 +90,7 @@ TArray<FHotUpdateEditorVersionInfo> UHotUpdateVersionManager::GetVersionHistory(
 	return Result;
 }
 
-FHotUpdateEditorVersionInfo UHotUpdateVersionManager::GetVersionInfo(const FString& VersionString, EHotUpdatePlatform Platform)
+FHotUpdateEditorVersionInfo FHotUpdateVersionManager::GetVersionInfo(const FString& VersionString, EHotUpdatePlatform Platform)
 {
 	FScopeLock Lock(&RegistryLock);
 
@@ -117,7 +112,7 @@ FHotUpdateEditorVersionInfo UHotUpdateVersionManager::GetVersionInfo(const FStri
 	return FHotUpdateEditorVersionInfo();
 }
 
-FHotUpdateVersionChain UHotUpdateVersionManager::GetVersionChain(const FString& BaseVersion, EHotUpdatePlatform Platform)
+FHotUpdateVersionChain FHotUpdateVersionManager::GetVersionChain(const FString& BaseVersion, EHotUpdatePlatform Platform)
 {
 	FHotUpdateVersionChain Chain;
 	Chain.BaseVersion = BaseVersion;
@@ -160,7 +155,7 @@ FHotUpdateVersionChain UHotUpdateVersionManager::GetVersionChain(const FString& 
 	return Chain;
 }
 
-FString UHotUpdateVersionManager::GetLatestVersion(EHotUpdatePlatform Platform)
+FString FHotUpdateVersionManager::GetLatestVersion(EHotUpdatePlatform Platform)
 {
 	FScopeLock Lock(&RegistryLock);
 
@@ -186,7 +181,7 @@ FString UHotUpdateVersionManager::GetLatestVersion(EHotUpdatePlatform Platform)
 	return LatestVersion;
 }
 
-TArray<FString> UHotUpdateVersionManager::GetBaseVersions(EHotUpdatePlatform Platform)
+TArray<FString> FHotUpdateVersionManager::GetBaseVersions(EHotUpdatePlatform Platform)
 {
 	FScopeLock Lock(&RegistryLock);
 
@@ -215,7 +210,7 @@ TArray<FString> UHotUpdateVersionManager::GetBaseVersions(EHotUpdatePlatform Pla
 	return Result;
 }
 
-TArray<FHotUpdateVersionSelectItem> UHotUpdateVersionManager::GetSelectableVersions(EHotUpdatePlatform Platform)
+TArray<FHotUpdateVersionSelectItem> FHotUpdateVersionManager::GetSelectableVersions(EHotUpdatePlatform Platform)
 {
 	FScopeLock Lock(&RegistryLock);
 
@@ -262,22 +257,22 @@ TArray<FHotUpdateVersionSelectItem> UHotUpdateVersionManager::GetSelectableVersi
 	return Result;
 }
 
-FString UHotUpdateVersionManager::GetVersionRootDir()
+FString FHotUpdateVersionManager::GetVersionRootDir()
 {
 	return FPaths::ProjectSavedDir() / TEXT("HotUpdateVersions");
 }
 
-FString UHotUpdateVersionManager::GetVersionDir(const FString& VersionString, EHotUpdatePlatform Platform)
+FString FHotUpdateVersionManager::GetVersionDir(const FString& VersionString, EHotUpdatePlatform Platform)
 {
 	return FPaths::Combine(GetVersionRootDir(), VersionString, HotUpdateUtils::GetPlatformString(Platform));
 }
 
-FString UHotUpdateVersionManager::GetVersionDir(const FString& VersionString, EHotUpdatePlatform Platform, EHotUpdateAndroidTextureFormat AndroidTextureFormat)
+FString FHotUpdateVersionManager::GetVersionDir(const FString& VersionString, EHotUpdatePlatform Platform, EHotUpdateAndroidTextureFormat AndroidTextureFormat)
 {
 	return FPaths::Combine(GetVersionRootDir(), VersionString, HotUpdateUtils::GetPlatformDirName(Platform, AndroidTextureFormat));
 }
 
-bool UHotUpdateVersionManager::VersionExists(const FString& VersionString, EHotUpdatePlatform Platform)
+bool FHotUpdateVersionManager::VersionExists(const FString& VersionString, EHotUpdatePlatform Platform)
 {
 	FScopeLock Lock(&RegistryLock);
 
@@ -290,7 +285,7 @@ bool UHotUpdateVersionManager::VersionExists(const FString& VersionString, EHotU
 	return PlatformMap && PlatformMap->Contains(Platform);
 }
 
-bool UHotUpdateVersionManager::LoadVersionRegistry()
+bool FHotUpdateVersionManager::LoadVersionRegistry()
 {
 	FString RegistryPath = GetVersionRootDir() / TEXT("VersionRegistry.json");
 
@@ -351,7 +346,7 @@ bool UHotUpdateVersionManager::LoadVersionRegistry()
 	return true;
 }
 
-bool UHotUpdateVersionManager::SaveVersionRegistry()
+bool FHotUpdateVersionManager::SaveVersionRegistry()
 {
 	FString RegistryDir = GetVersionRootDir();
 	IPlatformFile::GetPlatformPhysical().CreateDirectoryTree(*RegistryDir);
@@ -390,7 +385,7 @@ bool UHotUpdateVersionManager::SaveVersionRegistry()
 	return FFileHelper::SaveStringToFile(OutputString, *RegistryPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 }
 
-bool UHotUpdateVersionManager::ParseVersionString(const FString& VersionString, int32& OutMajor, int32& OutMinor, int32& OutPatch, int32& OutBuild)
+bool FHotUpdateVersionManager::ParseVersionString(const FString& VersionString, int32& OutMajor, int32& OutMinor, int32& OutPatch, int32& OutBuild)
 {
 	OutMajor = 0;
 	OutMinor = 0;
@@ -408,7 +403,7 @@ bool UHotUpdateVersionManager::ParseVersionString(const FString& VersionString, 
 	return Parts.Num() >= 1;
 }
 
-int32 UHotUpdateVersionManager::CompareVersions(const FString& A, const FString& B)
+int32 FHotUpdateVersionManager::CompareVersions(const FString& A, const FString& B)
 {
 	int32 MajorA, MinorA, PatchA, BuildA;
 	int32 MajorB, MinorB, PatchB, BuildB;

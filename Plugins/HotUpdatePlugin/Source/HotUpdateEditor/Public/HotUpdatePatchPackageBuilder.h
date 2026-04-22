@@ -4,17 +4,12 @@
 
 #include "CoreMinimal.h"
 #include "HotUpdateEditorTypes.h"
-#include "HotUpdateIoStoreBuilder.h"
-#include "HotUpdateChunkManager.h"
-#include "HotUpdateVersionManager.h"
-#include "HotUpdatePackageHelper.h"
 #include "HAL/CriticalSection.h"
 #include <atomic>
 
 /**
  * 热更新打包构建器
  * 基于基础包生成差异更新包
- * 继承 TSharedFromThis 以支持异步任务中的弱引用安全访问
  */
 class HOTUPDATEEDITOR_API FHotUpdatePatchPackageBuilder : public TSharedFromThis<FHotUpdatePatchPackageBuilder>
 {
@@ -26,35 +21,21 @@ public:
 
 	/** 异步构建更新包 */
 	void BuildPatchPackageAsync(const FHotUpdatePatchPackageConfig& Config);
-
-	/** 预览差异 */
-	FHotUpdateDiffReport PreviewDiff(const FHotUpdatePatchPackageConfig& Config);
-
+	
 	/** 取消构建 */
 	void CancelBuild();
 
 	/** 是否正在构建 */
 	bool IsBuilding() const { return bIsBuilding; }
-
-	/** 获取当前进度 */
-	FHotUpdatePackageProgress GetCurrentProgress() const;
-
+	
 	/** 验证配置 */
 	bool ValidateConfig(const FHotUpdatePatchPackageConfig& Config, FString& OutErrorMessage);
-
+	
 	// 进度委托
 	FOnPackageProgressDelegate OnProgress;
 
 	// 完成委托
 	FOnPatchPackageCompleteDelegate OnComplete;
-
-	/** 委托给 Helper */
-	static FString ConvertAssetPathToFileName(const FString& AssetPath, const FString& CookedPlatformDir)
-	{ return FHotUpdatePackageHelper::ConvertAssetPathToFileName(AssetPath, CookedPlatformDir); }
-
-	/** 委托给 Helper */
-	static FString FileNameToAssetPath(const FString& FileName)
-	{ return FHotUpdatePackageHelper::FileNameToAssetPath(FileName); }
 
 private:
 	/** 收集资源 */

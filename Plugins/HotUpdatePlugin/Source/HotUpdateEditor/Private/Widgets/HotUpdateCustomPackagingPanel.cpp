@@ -742,6 +742,7 @@ FReply SHotUpdateCustomPackagingPanel::OnPackageClicked()
 	CustomConfig.IoStoreConfig.bEncryptIndex = EditorSettings->bDefaultEncryptIndex;
 	CustomConfig.IoStoreConfig.bEncryptContent = EditorSettings->bDefaultEncryptContent;
 	CustomConfig.IoStoreConfig.bUseIoStore = (PackageConfig.OutputFormat == EHotUpdateOutputFormat::IoStore);
+	CustomConfig.bSynchronousMode = false;
 
 	CustomPackageBuilder->BuildCustomPackageAsync(CustomConfig);
 

@@ -476,14 +476,16 @@ struct HOTUPDATEEDITOR_API FHotUpdatePatchPackageConfig
 	/// 预收集的非 UE 资源列表（Staged 文件）
 	TArray<FString> PreCollectedNonAssetPaths;
 
+	bool bSynchronousMode;
+
 	FHotUpdatePatchPackageConfig()
 		: Platform(EHotUpdatePlatform::Windows)
-		, bIncludeDependencies(true)
-		, bSkipCook(false)
-		, bIncrementalCook(false)
-		, bSkipBuild(false)
-		, bEnableChainPatch(false)
-		, bIncludeBaseContainers(false)
+		  , bIncludeDependencies(true)
+		  , bSkipCook(false)
+		  , bIncrementalCook(false)
+		  , bSkipBuild(false)
+		  , bEnableChainPatch(false)
+		  , bIncludeBaseContainers(false), bSynchronousMode(false)
 	{
 	}
 };
@@ -1019,6 +1021,8 @@ struct HOTUPDATEEDITOR_API FHotUpdateCustomPackageConfig
 	/// Pak 挂载优先级（容器名 _n_P 中的 n，0=默认_P，数字越大优先级越高）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging", meta = (ClampMin = "0"))
 	int32 PakPriority = 10;
+
+	bool bSynchronousMode = false;
 };
 
 /**
