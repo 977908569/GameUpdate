@@ -1,16 +1,8 @@
 // Copyright czm. All Rights Reserved.
 
 #include "Download/HotUpdateDownloaderBase.h"
+#include "Download/HotUpdateHttpDownloader.h"
 #include "HotUpdate.h"
-
-// 平台特定下载器头文件
-#if PLATFORM_ANDROID
-	#include "Download/HotUpdateAndroidDownloader.h"
-#elif PLATFORM_IOS
-	#include "Download/HotUpdateIOSDownloader.h"
-#else
-	#include "Download/HotUpdateHttpDownloader.h"
-#endif
 
 UHotUpdateDownloaderBase::UHotUpdateDownloaderBase()
 {
@@ -110,15 +102,7 @@ void UHotUpdateDownloaderBase::UpdateProgressCalculation(int64 TotalDownloaded, 
 // == 工厂函数 ==
 UHotUpdateDownloaderBase* UHotUpdateDownloaderBase::CreateDownloader(UObject* Outer)
 {
-#if PLATFORM_ANDROID
-	UE_LOG(LogHotUpdate, Log, TEXT("Creating Android native downloader"));
-	return NewObject<UHotUpdateAndroidDownloader>(Outer);
-#elif PLATFORM_IOS
-	UE_LOG(LogHotUpdate, Log, TEXT("Creating iOS native downloader"));
-	return NewObject<UHotUpdateIOSDownloader>(Outer);
-#else
-	// Windows / Mac / Linux -- 使用 HTTP 下载器
+	// 所有平台暂时使用 HTTP 下载器
 	UE_LOG(LogHotUpdate, Log, TEXT("Creating HTTP downloader"));
 	return NewObject<UHotUpdateHttpDownloader>(Outer);
-#endif
 }

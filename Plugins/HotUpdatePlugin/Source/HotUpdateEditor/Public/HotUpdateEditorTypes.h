@@ -370,10 +370,6 @@ struct HOTUPDATEEDITOR_API FHotUpdateChunkDefinition
 	UPROPERTY(BlueprintReadOnly, Category = "Chunk")
 	FString ChunkName;
 
-	/// 加载优先级（越小越先加载）
-	UPROPERTY(BlueprintReadOnly, Category = "Chunk")
-	int32 Priority;
-
 	/// 包含的资源路径
 	UPROPERTY(BlueprintReadOnly, Category = "Chunk")
 	TArray<FString> AssetPaths;
@@ -388,7 +384,6 @@ struct HOTUPDATEEDITOR_API FHotUpdateChunkDefinition
 
 	FHotUpdateChunkDefinition()
 		: ChunkId(-1)
-		, Priority(0)
 		, UncompressedSize(0)
 		, CompressedSize(0)
 	{

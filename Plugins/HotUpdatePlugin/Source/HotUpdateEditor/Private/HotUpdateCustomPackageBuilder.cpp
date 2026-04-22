@@ -452,6 +452,15 @@ void UHotUpdateCustomPackageBuilder::UpdateProgress(const FString& Stage, const 
 		CurrentProgress.ProcessedFiles = ProcessedFiles;
 		CurrentProgress.TotalFiles = TotalFiles;
 		CurrentProgress.bIsComplete = (ProcessedFiles >= TotalFiles && TotalFiles > 0);
+
+		// 计算进度百分比
+		CurrentProgress.ProgressPercent = TotalFiles > 0
+			? (float)ProcessedFiles / TotalFiles * 100.0f
+			: 0.0f;
+
+		// 设置阶段描述
+		CurrentProgress.StageDescription = FText::FromString(Stage);
+
 		ProgressCopy = CurrentProgress;
 	}
 

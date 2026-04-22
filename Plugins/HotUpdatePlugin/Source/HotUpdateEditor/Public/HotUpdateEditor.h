@@ -15,12 +15,6 @@ struct FHotUpdatePendingData
 
 	/** 标记 Tab 已关闭，需要重新注册 spawner */
 	static bool bNeedReRegisterSpawner;
-
-	static void Reset()
-	{
-		InitialTab = 0;
-		bNeedReRegisterSpawner = false;
-	}
 };
 
 /**

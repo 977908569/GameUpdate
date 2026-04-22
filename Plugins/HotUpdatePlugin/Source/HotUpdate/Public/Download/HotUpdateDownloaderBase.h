@@ -74,8 +74,8 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "HotUpdate|Events")
 	FOnComplete OnComplete;
 
-	/// 单个文件完成事件
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnFileComplete, const FString&, FilePath, bool, bSuccess);
+	/// 单个文件完成事件（包含错误类型）
+	DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnFileComplete, const FString&, FilePath, bool, bSuccess, EHotUpdateError, ErrorType);
 	UPROPERTY(BlueprintAssignable, Category = "HotUpdate|Events")
 	FOnFileComplete OnFileComplete;
 

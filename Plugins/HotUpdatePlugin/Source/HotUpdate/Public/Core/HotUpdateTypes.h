@@ -331,10 +331,6 @@ struct HOTUPDATE_API FHotUpdateManifestEntry
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HotUpdate")
 	int32 ChunkId;
 
-	/// 下载优先级
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HotUpdate")
-	int32 Priority;
-
 	/// 是否压缩
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HotUpdate")
 	bool bIsCompressed;
@@ -346,7 +342,6 @@ struct HOTUPDATE_API FHotUpdateManifestEntry
 	FHotUpdateManifestEntry()
 		: FileSize(0)
 		, ChunkId(-1)
-		, Priority(0)
 		, bIsCompressed(false)
 		, CompressedSize(0)
 	{

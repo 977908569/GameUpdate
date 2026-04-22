@@ -26,6 +26,7 @@ struct UHotUpdateHttpDownloader::FDownloadTask
 	bool bIsCompleted;
 	bool bSuccess;
 	int32 RetryCount;        // 当前重试次数
+	EHotUpdateError ErrorType; // 错误类型
 };
 
 // === UHotUpdateHttpDownloader ===
@@ -306,6 +307,7 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 					IPlatformFile& PF = FPlatformFileManager::Get().GetPlatformFile();
 					PF.DeleteFile(*Task->TempPath);
 					bRequestSuccess = false;
+					Task->ErrorType = EHotUpdateError::VerificationFailed;
 				}
 				else
 				{
@@ -391,7 +393,7 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 	CompletedTasks.Add(Task);
 
 	CurrentProgress.CurrentFileIndex = CompletedTasks.Num();
-	OnFileComplete.Broadcast(Task->SavePath, Task->bSuccess);
+	OnFileComplete.Broadcast(Task->SavePath, Task->bSuccess, Task->ErrorType);
 
 	UpdateProgress();
 	ProcessNextTask();

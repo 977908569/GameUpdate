@@ -17,7 +17,7 @@ public class HotUpdate : ModuleRules
 			"PakFile",
 			"Json",
 			"JsonUtilities",
-			"DeveloperSettings"
+			"DeveloperSettings",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
@@ -27,10 +27,5 @@ public class HotUpdate : ModuleRules
 			"AssetRegistry"
 		});
 
-		// Android 平台依赖
-		if (Target.Platform == UnrealTargetPlatform.Android)
-		{
-			PrivateDependencyModuleNames.Add("AndroidRuntimeSettings");
-		}
-	}
+			}
 }

@@ -122,7 +122,6 @@ FHotUpdateChunkAnalysisResult FHotUpdateChunkManager::CreatePatchChunks(
 	FHotUpdateChunkDefinition Chunk;
 	Chunk.ChunkId = AllocateNextChunkId() + PatchChunkId;
 	Chunk.ChunkName = TEXT("Patch");
-	Chunk.Priority = 100;
 	Chunk.AssetPaths = ChangedAssets;
 
 	int64 ChunkSize = 0;
@@ -243,7 +242,6 @@ bool FHotUpdateChunkManager::DivideBySizeWithConfig(
 	FHotUpdateChunkDefinition CurrentChunk;
 	CurrentChunk.ChunkId = BaseChunkId;
 	CurrentChunk.ChunkName = FString::Printf(TEXT("%s_%d"), *Config.ChunkNamePrefix, ChunkIndex);
-	CurrentChunk.Priority = 10;
 
 	for (const FString& AssetPath : SortedAssets)
 	{
@@ -261,7 +259,6 @@ bool FHotUpdateChunkManager::DivideBySizeWithConfig(
 			CurrentChunk = FHotUpdateChunkDefinition();
 			CurrentChunk.ChunkId = BaseChunkId + ChunkIndex;
 			CurrentChunk.ChunkName = FString::Printf(TEXT("%s_%d"), *Config.ChunkNamePrefix, ChunkIndex);
-			CurrentChunk.Priority = 10;
 			CurrentChunkSize = 0;
 		}
 
@@ -297,7 +294,6 @@ bool FHotUpdateChunkManager::CreateSingleChunk(
 	FHotUpdateChunkDefinition Chunk;
 	Chunk.ChunkId = ChunkId >= 0 ? ChunkId : AllocateNextChunkId();
 	Chunk.ChunkName = ChunkName.IsEmpty() ? TEXT("Default") : ChunkName;
-	Chunk.Priority = 0;
 	Chunk.AssetPaths = AssetPaths;
 
 	int64 TotalSize = 0;
