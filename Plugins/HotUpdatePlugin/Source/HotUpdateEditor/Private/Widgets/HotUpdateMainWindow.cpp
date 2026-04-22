@@ -6,6 +6,7 @@
 #include "Widgets/HotUpdateBaseVersionPanel.h"
 #include "Widgets/HotUpdateVersionDiffPanel.h"
 #include "Widgets/HotUpdatePakViewerPanel.h"
+#include "Widgets/HotUpdateVersionManagementPanel.h"
 #include "EditorStyleSet.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/Docking/TabManager.h"
@@ -63,6 +64,7 @@ void SHotUpdateMainWindow::SetInitialTab(int32 TabIndex)
 	case 2: TabId = HotUpdateTabIds::CustomPackaging; break;
 	case 3: TabId = HotUpdateTabIds::VersionDiff;    break;
 	case 4: TabId = HotUpdateTabIds::PakViewer;      break;
+	case 5: TabId = HotUpdateTabIds::VersionManagement; break;
 	default: TabId = HotUpdateTabIds::BaseVersion;   break;
 	}
 
@@ -80,7 +82,7 @@ void SHotUpdateMainWindow::FillWindowMenu(FMenuBuilder& MenuBuilder, const TShar
 
 TSharedRef<FTabManager::FLayout> SHotUpdateMainWindow::CreateDefaultLayout()
 {
-	return FTabManager::NewLayout("HotUpdate_MainLayout_v2")
+	return FTabManager::NewLayout("HotUpdate_MainLayout_v3")
 		->AddArea
 		(
 			FTabManager::NewPrimaryArea()
@@ -93,6 +95,7 @@ TSharedRef<FTabManager::FLayout> SHotUpdateMainWindow::CreateDefaultLayout()
 				->AddTab(HotUpdateTabIds::CustomPackaging, ETabState::OpenedTab)
 				->AddTab(HotUpdateTabIds::VersionDiff, ETabState::OpenedTab)
 				->AddTab(HotUpdateTabIds::PakViewer, ETabState::OpenedTab)
+				->AddTab(HotUpdateTabIds::VersionManagement, ETabState::OpenedTab)
 				->SetForegroundTab(HotUpdateTabIds::BaseVersion)
 			)
 		);
@@ -131,6 +134,12 @@ void SHotUpdateMainWindow::RegisterTabSpawners(const TSharedPtr<FTabManager>& In
 		FOnSpawnTab::CreateSP(this, &SHotUpdateMainWindow::OnSpawnPakViewerTab))
 		.SetDisplayName(LOCTEXT("PakViewerTab", "Pak 查看器"))
 		.SetTooltipText(LOCTEXT("PakViewerTabTooltip", "查看 Pak 包内容"))
+		.SetGroup(HotUpdateGroup);
+
+	InTabManager->RegisterTabSpawner(HotUpdateTabIds::VersionManagement,
+		FOnSpawnTab::CreateSP(this, &SHotUpdateMainWindow::OnSpawnVersionManagementTab))
+		.SetDisplayName(LOCTEXT("VersionManagementTab", "版本管理"))
+		.SetTooltipText(LOCTEXT("VersionManagementTabTooltip", "管理已注册版本"))
 		.SetGroup(HotUpdateGroup);
 }
 
@@ -188,6 +197,17 @@ TSharedRef<SDockTab> SHotUpdateMainWindow::OnSpawnPakViewerTab(const FSpawnTabAr
 		.Label(LOCTEXT("PakViewerTab", "Pak 查看器"))
 		[
 			SAssignNew(MutableThis->PakViewerPanel, SHotUpdatePakViewerPanel)
+		];
+}
+
+TSharedRef<SDockTab> SHotUpdateMainWindow::OnSpawnVersionManagementTab(const FSpawnTabArgs& Args) const
+{
+	SHotUpdateMainWindow* MutableThis = const_cast<SHotUpdateMainWindow*>(this);
+	return SNew(SDockTab)
+		.TabRole(PanelTab)
+		.Label(LOCTEXT("VersionManagementTab", "版本管理"))
+		[
+			SAssignNew(MutableThis->VersionManagementPanel, SHotUpdateVersionManagementPanel)
 		];
 }
 

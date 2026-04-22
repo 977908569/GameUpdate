@@ -13,6 +13,7 @@ class SHotUpdateCustomPackagingPanel;
 class SHotUpdateVersionDiffPanel;
 class SHotUpdatePakViewerPanel;
 class SHotUpdateBaseVersionPanel;
+class SHotUpdateVersionManagementPanel;
 
 /** 子标签 ID 命名空间 */
 namespace HotUpdateTabIds
@@ -22,6 +23,7 @@ namespace HotUpdateTabIds
 	static const FName CustomPackaging("HotUpdate_CustomPackaging");
 	static const FName VersionDiff("HotUpdate_VersionDiff");
 	static const FName PakViewer("HotUpdate_PakViewer");
+	static const FName VersionManagement("HotUpdate_VersionManagement");
 }
 
 /**
@@ -57,6 +59,7 @@ private:
 	TSharedRef<SDockTab> OnSpawnCustomPackagingTab(const FSpawnTabArgs& Args) const;
 	TSharedRef<SDockTab> OnSpawnVersionDiffTab(const FSpawnTabArgs& Args) const;
 	TSharedRef<SDockTab> OnSpawnPakViewerTab(const FSpawnTabArgs& Args) const;
+	TSharedRef<SDockTab> OnSpawnVersionManagementTab(const FSpawnTabArgs& Args) const;
 
 	/** 获取用于原生对话框的最佳父窗口 */
 	TSharedPtr<SWindow> GetBestParentWindow() const;
@@ -85,4 +88,7 @@ private:
 
 	/** Pak 查看器面板 */
 	TSharedPtr<SHotUpdatePakViewerPanel> PakViewerPanel;
+
+	/** 版本管理面板 */
+	TSharedPtr<SHotUpdateVersionManagementPanel> VersionManagementPanel;
 };
