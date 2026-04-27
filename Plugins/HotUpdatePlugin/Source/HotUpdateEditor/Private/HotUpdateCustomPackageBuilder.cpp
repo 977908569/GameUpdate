@@ -262,7 +262,7 @@ FHotUpdateCustomPackageResult FHotUpdateCustomPackageBuilder::ExecuteBuild(const
 
 		FString PatchOutputPath = FPaths::Combine(PaksDir, IoStoreConfig.ContainerName);
 
-		FHotUpdateIoStoreResult IoStoreResult = IoStoreBuilder.BuildIoStoreContainer(AllAssets, PatchOutputPath, IoStoreConfig);
+		FHotUpdateIoStoreResult IoStoreResult = IoStoreBuilder.BuildIoStoreContainer(AllAssets, PatchOutputPath, IoStoreConfig, CookedPlatformDir);
 
 		if (!IoStoreResult.bSuccess)
 		{

@@ -199,7 +199,7 @@ FString FHotUpdatePackageHelper::GetCookedAssetPath(const FString& AssetPath, co
 	{
 		return TEXT("");
 	}
-	
+
 	if (!IsUAsset(AssetPath))
 	{
 		return TEXT("");
@@ -212,23 +212,48 @@ FString FHotUpdatePackageHelper::GetCookedAssetPath(const FString& AssetPath, co
 		return TEXT("");
 	}
 
+	FString RootStr = FString(PackageNameRoot);
 	FString FilePathRootStr = FString(FilePathRoot);
-	FString SubDir;
-	
-	if (FilePathRootStr.Contains(TEXT("Plugins/")))
+	FString CookedBaseDir;
+
+	// 根据 PackageNameRoot 确定 Cooked 目录基础路径
+	// Cooked 目录结构: {CookedPlatformDir}/{ProjectName}/Content/... 或 {CookedPlatformDir}/Engine/Content/...
+	if (RootStr == TEXT("/Game/"))
+	{
+		// /Game/ 映射到 {ProjectName}/Content/
+		CookedBaseDir = FPaths::Combine(CookedPlatformDir, FString(FApp::GetProjectName()), TEXT("Content"));
+	}
+	else if (RootStr == TEXT("/Engine/"))
+	{
+		// /Engine/ 映射到 Engine/Content/
+		CookedBaseDir = FPaths::Combine(CookedPlatformDir, TEXT("Engine"), TEXT("Content"));
+	}
+	else if (FilePathRootStr.Contains(TEXT("Plugins/")))
 	{
 		// 插件路径：提取 "Plugins/..." 部分
 		const int32 PluginsIdx = FilePathRootStr.Find(TEXT("Plugins/"));
 		FString PluginPath = FilePathRootStr.Mid(PluginsIdx);
-		SubDir = GetPluginCookedSubDir(PluginPath);
+		FString SubDir = GetPluginCookedSubDir(PluginPath);
 		if (SubDir.IsEmpty())
 		{
 			UE_LOG(LogHotUpdateEditor, Warning, TEXT("GetCookedAssetPath: 插件目录不存在: %s"), *PluginPath);
 			return TEXT("");
 		}
+		CookedBaseDir = FPaths::Combine(CookedPlatformDir, SubDir, TEXT("Content"));
+	}
+	else
+	{
+		// 其他路径：直接使用 PackageNameRoot（去掉开头的 /）
+		FString CleanRoot = RootStr;
+		if (CleanRoot.StartsWith(TEXT("/")))
+		{
+			CleanRoot = CleanRoot.RightChop(1);
+		}
+		CookedBaseDir = FPaths::Combine(CookedPlatformDir, CleanRoot);
 	}
 
-	const FString CookedPath = FPaths::Combine(CookedPlatformDir, PackageNameRoot);
+	// 拼接完整 Cooked 路径
+	const FString CookedPath = FPaths::Combine(CookedBaseDir, RelPath);
 
 	FString UmapPath = CookedPath + TEXT(".umap");
 	if (FPaths::FileExists(UmapPath))
@@ -240,8 +265,9 @@ FString FHotUpdatePackageHelper::GetCookedAssetPath(const FString& AssetPath, co
 	{
 		return UassetPath;
 	}
-	
-	UE_LOG(LogHotUpdateEditor, Warning, TEXT("GetCookedAssetPath: 文件不存在: %s"), *CookedPath);
+
+	UE_LOG(LogHotUpdateEditor, Warning, TEXT("GetCookedAssetPath: 文件不存在: %s (AssetPath: %s, CookedBaseDir: %s, RelPath: %s)"),
+		*CookedPath, *AssetPath, *CookedBaseDir, *FString(RelPath));
 	return TEXT("");
 }
 
@@ -339,6 +365,23 @@ FString FHotUpdatePackageHelper::GetAssetPakMountPath(const FString& AssetPath)
 
 	FString Result = FilePathRootStr + FString(RelPath);
 	Result.ReplaceCharInline('\\', '/');
+
+	// 防御性检查：确保 /Game/ 路径包含 /Content/
+	// 如果 FilePathRootStr 不包含 /Content/，可能导致 Pak 内部路径缺少该段
+	if (RootStr == TEXT("/Game/") && !Result.Contains(TEXT("/Content/")))
+	{
+		// 手动修复：例如 ../../../GameUpdate/Maps/Start -> ../../../GameUpdate/Content/Maps/Start
+		// 找到项目名后的第一个 / 位置，插入 /Content
+		FString Prefix = FString::Printf(TEXT("../../../%s"), FApp::GetProjectName());
+		int32 PrefixLen = Prefix.Len();
+		if (Result.StartsWith(Prefix) && Result.Len() > PrefixLen)
+		{
+			// 在项目名后插入 /Content
+			Result = Prefix + TEXT("/Content") + Result.Mid(PrefixLen);
+			UE_LOG(LogHotUpdateEditor, Log, TEXT("GetAssetPakMountPath: 修复缺少 /Content/ 的路径: %s"), *Result);
+		}
+	}
+
 	return Result;
 }
 
@@ -363,7 +406,7 @@ bool FHotUpdatePackageHelper::IsUAsset(const FString& AssetPath)
 			Extension = TEXT("umap");
 		}
 	}
-	
+
 	if (Extension == TEXT("umap") || Extension == TEXT("uasset"))
 	{
 		return true;

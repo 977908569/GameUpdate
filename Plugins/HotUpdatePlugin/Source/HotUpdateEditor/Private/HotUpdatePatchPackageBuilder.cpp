@@ -327,7 +327,26 @@ FHotUpdatePatchPackageResult FHotUpdatePatchPackageBuilder::BuildPatchPackage(co
 
 		FString PatchOutputPath = FPaths::Combine(PaksDir, IoStoreConfig.ContainerName);
 
-		FHotUpdateIoStoreResult IoStoreResult = IoStoreBuilder.BuildIoStoreContainer(ChangedAssets, PatchOutputPath, IoStoreConfig);
+		// 将绝对路径转换为虚拟包路径（供 IoStoreBuilder 使用）
+		// ChangedAssets 来自 ComputeDiff，使用源文件绝对路径格式
+		// BuildIoStoreContainer 需要虚拟包路径格式（如 /Game/Maps/Start）
+		TArray<FString> VirtualPackagePaths;
+		for (const FString& AbsolutePath : ChangedAssets)
+		{
+			FString VirtualPath = FHotUpdatePackageHelper::FileNameToAssetPath(AbsolutePath);
+			if (!VirtualPath.IsEmpty())
+			{
+				VirtualPackagePaths.Add(VirtualPath);
+			}
+			else
+			{
+				UE_LOG(LogHotUpdateEditor, Warning, TEXT("无法转换路径: %s"), *AbsolutePath);
+			}
+		}
+
+		// 获取 Cooked 平台目录，用于查找 .uexp/.ubulk 配套文件
+		FString CookedPlatformDir = HotUpdateUtils::GetCookedPlatformDir(CurrentConfig.Platform);
+		FHotUpdateIoStoreResult IoStoreResult = IoStoreBuilder.BuildIoStoreContainer(VirtualPackagePaths, PatchOutputPath, IoStoreConfig, CookedPlatformDir);
 
 		if (!IoStoreResult.bSuccess)
 		{

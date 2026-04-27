@@ -54,15 +54,17 @@ public:
 
 	/**
 	 * 构建 IoStore 容器
-	 * @param AssetPathToDiskPath 资源包路径到磁盘路径的映射（如 "/Game/Maps/Start" -> "E:/.../Content/Maps/Start.umap"）
+	 * @param AssetPaths 资源包路径数组（如 "/Game/Maps/Start"）
 	 * @param OutputPath 输出路径（不含扩展名）
 	 * @param Config IoStore 配置
+	 * @param CookedPlatformDir Cooked 平台目录路径（可选，用于查找 .uexp/.ubulk 配套文件）
 	 * @return 构建结果
 	 */
 	FHotUpdateIoStoreResult BuildIoStoreContainer(
-		const TArray<FString>& AssetPathToDiskPath,
+		const TArray<FString>& AssetPaths,
 		const FString& OutputPath,
-		const FHotUpdateIoStoreConfig& Config);
+		const FHotUpdateIoStoreConfig& Config,
+		const FString& CookedPlatformDir = TEXT(""));
 
 	/**
 	 * 取消构建
@@ -95,9 +97,10 @@ private:
 	 * 使用 UnrealPak 创建 IoStore 格式容器
 	 */
 	bool CreateIoStoreWithUnrealPak(
-		const TArray<FString>& AssetPathToDiskPath,
+		const TArray<FString>& AssetPaths,
 		const FString& OutputPath,
 		const FHotUpdateIoStoreConfig& Config,
+		const FString& CookedPlatformDir,
 		FHotUpdateIoStoreResult& OutResult);
 
 	/**
@@ -118,14 +121,15 @@ private:
 	static bool PrepareTempDirectory(
 		const FString& TempDir,
 		FString& OutErrorMessage);
-	
+
 	/**
 	 * 生成响应文件
 	 */
 	bool GenerateResponseFile(
-		const TArray<FString>& AssetPathToDiskPath,
+		const TArray<FString>& AssetPaths,
 		const FString& ResponseFilePath,
 		const FString& CompressionFormat,
+		const FString& CookedPlatformDir,
 		int32& OutValidFileCount,
 		int64& OutTotalSize,
 		FString& OutErrorMessage);
