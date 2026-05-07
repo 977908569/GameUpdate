@@ -4,53 +4,28 @@
 
 #include "CoreMinimal.h"
 #include "Core/HotUpdateTypes.h"
-#include "Core/HotUpdatePakTypes.h"
-#include "HotUpdatePakManager.generated.h"
 
 /**
- * Pak 管理器
+ * Pak 管理器（纯 C++ 类）
  *
  * 负责 Pak 文件的挂载、卸载、验证
  */
-UCLASS(BlueprintType)
-class HOTUPDATE_API UHotUpdatePakManager : public UObject
+class HOTUPDATE_API FHotUpdatePakManager
 {
-	GENERATED_BODY()
-
 public:
-	UHotUpdatePakManager();
+	FHotUpdatePakManager() = default;
 
 	/// 初始化
-	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Pak")
 	void Initialize(const FString& InPakDirectory);
 
 	/// 挂载 Pak 文件
-	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Pak")
 	bool MountPak(const FString& PakPath, int32 PakOrder = 0, const FString& EncryptionKey = TEXT(""));
 
 	/// 卸载 Pak 文件
-	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Pak")
 	bool UnmountPak(const FString& PakPath);
 
 	/// 检查 Pak 是否已挂载
-	UFUNCTION(BlueprintPure, Category = "HotUpdate|Pak")
 	bool IsPakMounted(const FString& PakPath) const;
-
-	/// 获取 Pak 文件条目详细信息
-	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Pak")
-	TArray<FHotUpdatePakEntry> GetPakEntries(const FString& PakPath);
-
-	// == 事件委托 ==
-
-	/// Pak 挂载完成事件
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnPakMounted, const FString&, PakPath, bool, bSuccess);
-	UPROPERTY(BlueprintAssignable, Category = "HotUpdate|Events")
-	FOnPakMounted OnPakMounted;
-
-	/// Pak 卸载完成事件
-	DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPakUnmounted, const FString&, PakPath);
-	UPROPERTY(BlueprintAssignable, Category = "HotUpdate|Events")
-	FOnPakUnmounted OnPakUnmounted;
 
 	/// 解析 Pak 元数据
 	FHotUpdatePakMetadata ParsePakMetadata(const FString& PakPath);
@@ -60,10 +35,8 @@ public:
 
 private:
 	/// Pak 存储目录
-	UPROPERTY(Transient)
 	FString PakDirectory;
 
 	/// 已挂载的 Pak 列表
-	UPROPERTY(Transient)
 	TArray<FHotUpdatePakMetadata> MountedPaks;
 };

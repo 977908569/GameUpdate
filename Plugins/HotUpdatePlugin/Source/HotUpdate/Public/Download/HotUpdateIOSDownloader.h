@@ -7,7 +7,7 @@
 #include "HotUpdateIOSDownloader.generated.h"
 
 /**
- * iOS 下载器
+ * iOS 下载器（占位，未来实现 NSURLSession background transfer 集成）
  */
 UCLASS()
 class HOTUPDATE_API UHotUpdateIOSDownloader : public UHotUpdateDownloaderBase

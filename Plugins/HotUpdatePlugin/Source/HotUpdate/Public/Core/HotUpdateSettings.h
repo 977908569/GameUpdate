@@ -83,11 +83,8 @@ public:
 	/// 获取默认设置
 	static UHotUpdateSettings* Get();
 
-	/// 验证 URL 是否有效且安全
+	/// 验证 URL 是否有效（协议格式、非空）
 	static bool ValidateUrl(const FString& Url, FString& OutErrorMessage);
-
-	/// 检查是否允许 HTTP（非 HTTPS）连接
-	static bool IsHttpAllowed();
 
 	// == 最小包模式配置（打包时使用）==
 
@@ -100,12 +97,4 @@ public:
 	TArray<FString> WhitelistDirectories;
 
 
-protected:
-	/// 允许的域名白名单（留空表示允许所有）
-	UPROPERTY(Config, EditAnywhere, Category = "Server", meta = (DisplayName = "Allowed Domains"))
-	TArray<FString> AllowedDomains;
-
-	/// 是否允许 HTTP 连接（不推荐，仅用于开发测试）
-	UPROPERTY(Config, EditAnywhere, Category = "Server")
-	bool bAllowHttpConnection;
 };

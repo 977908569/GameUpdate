@@ -10,11 +10,7 @@
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
 
-UHotUpdatePakManager::UHotUpdatePakManager()
-{
-}
-
-void UHotUpdatePakManager::Initialize(const FString& InPakDirectory)
+void FHotUpdatePakManager::Initialize(const FString& InPakDirectory)
 {
 	PakDirectory = InPakDirectory;
 
@@ -28,7 +24,7 @@ void UHotUpdatePakManager::Initialize(const FString& InPakDirectory)
 	UE_LOG(LogHotUpdate, Log, TEXT("PakManager initialized. Directory: %s"), *PakDirectory);
 }
 
-bool UHotUpdatePakManager::MountPak(const FString& PakPath, int32 PakOrder, const FString& EncryptionKey)
+bool FHotUpdatePakManager::MountPak(const FString& PakPath, int32 PakOrder, const FString& EncryptionKey)
 {
 	// 检查是否已挂载
 	if (IsPakMounted(PakPath))
@@ -43,7 +39,6 @@ bool UHotUpdatePakManager::MountPak(const FString& PakPath, int32 PakOrder, cons
 	if (!PakPlatformFile)
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("PakPlatformFile not found"));
-		OnPakMounted.Broadcast(PakPath, false);
 		return false;
 	}
 
@@ -52,7 +47,6 @@ bool UHotUpdatePakManager::MountPak(const FString& PakPath, int32 PakOrder, cons
 	if (!PlatformFile.FileExists(*PakPath))
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("Pak file not found: %s"), *PakPath);
-		OnPakMounted.Broadcast(PakPath, false);
 		return false;
 	}
 
@@ -107,11 +101,10 @@ bool UHotUpdatePakManager::MountPak(const FString& PakPath, int32 PakOrder, cons
 		UE_LOG(LogHotUpdate, Error, TEXT("Failed to mount Pak: %s"), *PakPath);
 	}
 
-	OnPakMounted.Broadcast(PakPath, bSuccess);
 	return bSuccess;
 }
 
-bool UHotUpdatePakManager::UnmountPak(const FString& PakPath)
+bool FHotUpdatePakManager::UnmountPak(const FString& PakPath)
 {
 	FPakPlatformFile* PakPlatformFile = static_cast<FPakPlatformFile*>(FPlatformFileManager::Get().FindPlatformFile(TEXT("PakFile")));
 	if (!PakPlatformFile)
@@ -132,7 +125,6 @@ bool UHotUpdatePakManager::UnmountPak(const FString& PakPath)
 		}
 
 		UE_LOG(LogHotUpdate, Log, TEXT("Unmounted Pak: %s"), *PakPath);
-		OnPakUnmounted.Broadcast(PakPath);
 	}
 	else
 	{
@@ -142,7 +134,7 @@ bool UHotUpdatePakManager::UnmountPak(const FString& PakPath)
 	return bSuccess;
 }
 
-bool UHotUpdatePakManager::IsPakMounted(const FString& PakPath) const
+bool FHotUpdatePakManager::IsPakMounted(const FString& PakPath) const
 {
 	for (const FHotUpdatePakMetadata& Metadata : MountedPaks)
 	{
@@ -154,97 +146,7 @@ bool UHotUpdatePakManager::IsPakMounted(const FString& PakPath) const
 	return false;
 }
 
-TArray<FHotUpdatePakEntry> UHotUpdatePakManager::GetPakEntries(const FString& PakPath)
-{
-	TArray<FHotUpdatePakEntry> Entries;
-
-	// 检查文件是否存在
-	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
-	if (!PlatformFile.FileExists(*PakPath))
-	{
-		UE_LOG(LogHotUpdate, Error, TEXT("Pak file not found: %s"), *PakPath);
-		return Entries;
-	}
-
-	// 获取文件大小
-	int64 FileSize = PlatformFile.FileSize(*PakPath);
-	UE_LOG(LogHotUpdate, Log, TEXT("Pak file size: %lld bytes, Path: %s"), FileSize, *PakPath);
-
-	// 使用 IPlatformFile 创建 FPakFile
-	TRefCountPtr<FPakFile> PakFile = new FPakFile(&PlatformFile, *PakPath, false);
-	if (!PakFile.IsValid())
-	{
-		UE_LOG(LogHotUpdate, Error, TEXT("Failed to create FPakFile: %s"), *PakPath);
-		return Entries;
-	}
-
-	if (!PakFile->IsValid())
-	{
-		UE_LOG(LogHotUpdate, Error, TEXT("FPakFile is not valid: %s"), *PakPath);
-		return Entries;
-	}
-
-	// 输出 Pak 文件信息
-	int32 NumFiles = PakFile->GetNumFiles();
-	bool bHasFilenames = PakFile->HasFilenames();
-	UE_LOG(LogHotUpdate, Log, TEXT("Pak info - NumFiles: %d, HasFilenames: %s"), NumFiles, bHasFilenames ? TEXT("true") : TEXT("false"));
-
-	// 遍历 Pak 文件中的所有条目
-	int32 IterationCount = 0;
-	for (FPakFile::FFilenameIterator It(*PakFile); It; ++It)
-	{
-		IterationCount++;
-		const FPakEntry& PakEntry = It.Info();
-		const FString& Filename = It.Filename();
-
-		FHotUpdatePakEntry Entry;
-		Entry.FileName = Filename;
-		Entry.UncompressedSize = PakEntry.UncompressedSize;
-		Entry.CompressedSize = PakEntry.Size;
-		Entry.Offset = PakEntry.Offset;
-		// CompressionMethodIndex != 0 表示压缩
-		Entry.bIsCompressed = PakEntry.CompressionMethodIndex != 0;
-		Entry.bIsEncrypted = (PakEntry.Flags & FPakEntry::Flag_Encrypted) != 0;
-
-		// 计算 SHA1 Hash 字符串
-		Entry.FileHash = UHotUpdateFileUtils::BytesToHex(PakEntry.Hash, sizeof(PakEntry.Hash));
-
-		Entries.Add(Entry);
-	}
-
-	UE_LOG(LogHotUpdate, Log, TEXT("FFilenameIterator iterations: %d, Final entries: %d"), IterationCount, Entries.Num());
-
-	// 如果 FFilenameIterator 没有结果，尝试使用 FPakEntryIterator
-	if (Entries.Num() == 0 && NumFiles > 0)
-	{
-		UE_LOG(LogHotUpdate, Warning, TEXT("Trying FPakEntryIterator as fallback..."));
-		IterationCount = 0;
-		for (FPakFile::FPakEntryIterator It(*PakFile); It; ++It)
-		{
-			IterationCount++;
-			const FPakEntry& PakEntry = It.Info();
-			const FString* Filename = It.TryGetFilename();
-
-			if (Filename && !Filename->IsEmpty())
-			{
-				FHotUpdatePakEntry Entry;
-				Entry.FileName = *Filename;
-				Entry.UncompressedSize = PakEntry.UncompressedSize;
-				Entry.CompressedSize = PakEntry.Size;
-				Entry.Offset = PakEntry.Offset;
-				Entry.bIsCompressed = PakEntry.CompressionMethodIndex != 0;
-				Entry.bIsEncrypted = (PakEntry.Flags & FPakEntry::Flag_Encrypted) != 0;
-				Entry.FileHash = UHotUpdateFileUtils::BytesToHex(PakEntry.Hash, sizeof(PakEntry.Hash));
-				Entries.Add(Entry);
-			}
-		}
-		UE_LOG(LogHotUpdate, Log, TEXT("FPakEntryIterator iterations: %d, entries with filename: %d"), IterationCount, Entries.Num());
-	}
-
-	return Entries;
-}
-
-FHotUpdatePakMetadata UHotUpdatePakManager::ParsePakMetadata(const FString& PakPath)
+FHotUpdatePakMetadata FHotUpdatePakManager::ParsePakMetadata(const FString& PakPath)
 {
 	FHotUpdatePakMetadata Metadata;
 	Metadata.PakPath = PakPath;
@@ -253,7 +155,8 @@ FHotUpdatePakMetadata UHotUpdatePakManager::ParsePakMetadata(const FString& PakP
 
 	// 获取文件大小
 	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
-	Metadata.PakSize = PlatformFile.FileSize(*PakPath);
+	int64 RawSize = PlatformFile.FileSize(*PakPath);
+	Metadata.PakSize = RawSize > 0 ? RawSize : 0;
 
 	// 尝试从文件名解析版本信息
 	// 假设文件名格式: "HotUpdate_1.2.3.pak" 或 "Chunk_100_1.2.3.pak" 或 "Patch_1.2.3.utoc"
@@ -282,7 +185,7 @@ FHotUpdatePakMetadata UHotUpdatePakManager::ParsePakMetadata(const FString& PakP
 	return Metadata;
 }
 
-int32 UHotUpdatePakManager::CalculatePakOrder(const FHotUpdateVersionInfo& Version)
+int32 FHotUpdatePakManager::CalculatePakOrder(const FHotUpdateVersionInfo& Version)
 {
 	// Pak 顺序规则：
 	// 1. 基础 Pak (Chunk 0) 优先级最低

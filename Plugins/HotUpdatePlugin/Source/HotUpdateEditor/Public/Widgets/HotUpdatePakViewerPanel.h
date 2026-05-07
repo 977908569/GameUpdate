@@ -6,7 +6,6 @@
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/Input/SSearchBox.h"
 #include "Core/HotUpdateTypes.h"
-#include "Core/HotUpdatePakTypes.h"
 
 template<typename ItemType> class SListView;
 class ITableRow;

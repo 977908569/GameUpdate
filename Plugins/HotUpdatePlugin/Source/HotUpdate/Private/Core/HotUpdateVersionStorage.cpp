@@ -3,7 +3,6 @@
 #include "Core/HotUpdateVersionStorage.h"
 #include "Core/HotUpdateFileUtils.h"
 #include "HotUpdate.h"
-#include "HotUpdateManifest.h"
 #include "Misc/FileHelper.h"
 #include "HAL/PlatformFileManager.h"
 #include "HAL/FileManager.h"
@@ -11,11 +10,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 
-UHotUpdateVersionStorage::UHotUpdateVersionStorage()
-{
-}
-
-void UHotUpdateVersionStorage::Initialize(const FString& InStoragePath)
+void FHotUpdateVersionStorage::Initialize(const FString& InStoragePath)
 {
 	StoragePath = InStoragePath;
 
@@ -23,7 +18,7 @@ void UHotUpdateVersionStorage::Initialize(const FString& InStoragePath)
 	UHotUpdateFileUtils::EnsureDirectoryExists(StoragePath);
 }
 
-bool UHotUpdateVersionStorage::LoadLocalVersion(FHotUpdateVersionInfo& OutVersion)
+bool FHotUpdateVersionStorage::LoadLocalVersion(FHotUpdateVersionInfo& OutVersion)
 {
 	FString VersionFilePath = GetVersionFilePath();
 
@@ -64,7 +59,7 @@ bool UHotUpdateVersionStorage::LoadLocalVersion(FHotUpdateVersionInfo& OutVersio
 	return true;
 }
 
-bool UHotUpdateVersionStorage::SaveLocalVersion(const FHotUpdateVersionInfo& Version)
+bool FHotUpdateVersionStorage::SaveLocalVersion(const FHotUpdateVersionInfo& Version)
 {
 	FString VersionFilePath = GetVersionFilePath();
 
@@ -99,7 +94,7 @@ bool UHotUpdateVersionStorage::SaveLocalVersion(const FHotUpdateVersionInfo& Ver
 	}
 }
 
-bool UHotUpdateVersionStorage::LoadLocalManifest(FHotUpdateManifest& OutManifest)
+bool FHotUpdateVersionStorage::LoadLocalManifest(FHotUpdateManifest& OutManifest)
 {
 	FString ManifestPath = GetManifestFilePath();
 
@@ -116,7 +111,7 @@ bool UHotUpdateVersionStorage::LoadLocalManifest(FHotUpdateManifest& OutManifest
 		return false;
 	}
 
-	if (!UHotUpdateManifestParser::ParseFromJson(JsonString, OutManifest))
+	if (!UHotUpdateFileUtils::ParseManifestFromJson(JsonString, OutManifest))
 	{
 		UE_LOG(LogHotUpdate, Warning, TEXT("Failed to parse local manifest"));
 		return false;
@@ -127,11 +122,11 @@ bool UHotUpdateVersionStorage::LoadLocalManifest(FHotUpdateManifest& OutManifest
 	return true;
 }
 
-bool UHotUpdateVersionStorage::SaveLocalManifest(const FHotUpdateManifest& Manifest)
+bool FHotUpdateVersionStorage::SaveLocalManifest(const FHotUpdateManifest& Manifest)
 {
 	FString ManifestPath = GetManifestFilePath();
 
-	if (UHotUpdateManifestParser::SaveToFile(ManifestPath, Manifest))
+	if (UHotUpdateFileUtils::SaveManifestToFile(ManifestPath, Manifest))
 	{
 		UE_LOG(LogHotUpdate, Log, TEXT("Saved local manifest: %s"), *ManifestPath);
 		return true;

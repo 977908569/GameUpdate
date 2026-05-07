@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Core/HotUpdateTypes.h"
 #include "HotUpdateFileUtils.generated.h"
 
 /**
@@ -54,4 +55,27 @@ public:
 	 * @return true 如果是引擎资源
 	 */
 	static bool IsEngineAsset(const FString& PackagePath);
+
+	/**
+	 * 从 JSON 字符串解析 Manifest
+	 * @param JsonString JSON 字符串
+	 * @param OutManifest 输出的 Manifest 数据
+	 * @return 是否解析成功
+	 */
+	static bool ParseManifestFromJson(const FString& JsonString, FHotUpdateManifest& OutManifest);
+
+	/**
+	 * 将 Manifest 保存到文件
+	 * @param FilePath 文件路径
+	 * @param Manifest Manifest 数据
+	 * @return 是否保存成功
+	 */
+	static bool SaveManifestToFile(const FString& FilePath, const FHotUpdateManifest& Manifest);
+
+	/**
+	 * 将 Manifest 序列化为 JSON 字符串
+	 * @param Manifest Manifest 数据
+	 * @return JSON 字符串
+	 */
+	static FString ManifestToJsonString(const FHotUpdateManifest& Manifest);
 };

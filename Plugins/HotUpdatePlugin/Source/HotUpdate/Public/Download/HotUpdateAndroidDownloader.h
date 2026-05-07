@@ -7,7 +7,7 @@
 #include "HotUpdateAndroidDownloader.generated.h"
 
 /**
- * Android 下载器
+ * Android 下载器（占位，未来实现 JNI DownloadManager 集成）
  */
 UCLASS()
 class HOTUPDATE_API UHotUpdateAndroidDownloader : public UHotUpdateDownloaderBase

@@ -4,6 +4,12 @@
 #include "Download/HotUpdateHttpDownloader.h"
 #include "HotUpdate.h"
 
+#if PLATFORM_ANDROID
+#include "Download/HotUpdateAndroidDownloader.h"
+#elif PLATFORM_IOS
+#include "Download/HotUpdateIOSDownloader.h"
+#endif
+
 UHotUpdateDownloaderBase::UHotUpdateDownloaderBase()
 {
 }
@@ -116,7 +122,14 @@ void UHotUpdateDownloaderBase::UpdateProgressCalculation(int64 TotalDownloaded, 
 // == 工厂函数 ==
 UHotUpdateDownloaderBase* UHotUpdateDownloaderBase::CreateDownloader(UObject* Outer)
 {
-	// 所有平台暂时使用 HTTP 下载器
+#if PLATFORM_ANDROID
+	UE_LOG(LogHotUpdate, Log, TEXT("Creating Android downloader"));
+	return NewObject<UHotUpdateHttpDownloader>(Outer);
+#elif PLATFORM_IOS
+	UE_LOG(LogHotUpdate, Log, TEXT("Creating iOS downloader"));
+	return NewObject<UHotUpdateHttpDownloader>(Outer);
+#else
 	UE_LOG(LogHotUpdate, Log, TEXT("Creating HTTP downloader"));
 	return NewObject<UHotUpdateHttpDownloader>(Outer);
+#endif
 }

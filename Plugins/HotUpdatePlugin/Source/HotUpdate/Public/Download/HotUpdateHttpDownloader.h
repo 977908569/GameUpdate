@@ -76,6 +76,15 @@ public:
 	/// 重试下载任务
 	void RetryTask(TSharedPtr<FDownloadTask> Task);
 
+	/// 保存响应内容到临时文件（全新下载或断点续传追加）
+	bool SaveResponseToFile(TSharedPtr<FDownloadTask> Task, TSharedPtr<class IHttpResponse> Response, bool bIsPartialContent, int64& OutDataSize);
+
+	/// 校验 Hash 并将临时文件重命名为最终文件
+	bool VerifyAndFinalizeTask(TSharedPtr<FDownloadTask> Task, int64 DataSize);
+
+	/// 处理下载失败（重试或标记失败），返回 true 表示已处理完毕（调用方应 return）
+	void HandleTaskFailure(TSharedPtr<FDownloadTask> Task, bool& bOutHandled);
+
 private:
 	/// 最大并发数
 	int32 MaxConcurrentDownloads;

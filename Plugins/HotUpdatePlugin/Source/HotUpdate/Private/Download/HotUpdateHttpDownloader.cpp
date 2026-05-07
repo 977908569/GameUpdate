@@ -269,10 +269,9 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 		}
 	}
 
-	// 区分"暂停导致的取消"和"真正的错误"
+	// 暂停导致的取消 → 移回待下载队列
 	if (!bSuccess && bIsPaused)
 	{
-		// 暂停导致的请求取消，将任务移回待下载队列，不触发重试和回调
 		ActiveTasks.Remove(Task);
 		PendingTasks.Add(Task);
 		return;
@@ -280,149 +279,149 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 
 	// 检查响应状态
 	int32 ResponseCode = Response.IsValid() ? Response->GetResponseCode() : 0;
-	bool bIsPartialContent = (ResponseCode == 206);  // Partial Content
+	bool bIsPartialContent = (ResponseCode == 206);
 	bool bIsFullContent = (ResponseCode >= 200 && ResponseCode < 300 && ResponseCode != 206);
-
 	bool bRequestSuccess = bSuccess && Response.IsValid() && (bIsPartialContent || bIsFullContent);
 
+	// 保存响应内容
+	int64 DataSize = 0;
 	if (bRequestSuccess)
 	{
-		// 获取响应内容
-		const TArray<uint8>& Content = Response->GetContent();
-		int64 DataSize = Content.Num();
+		bRequestSuccess = SaveResponseToFile(Task, Response, bIsPartialContent, DataSize);
+	}
 
-		bool bSaveSuccess = false;
+	// 校验 Hash + 重命名
+	if (bRequestSuccess)
+	{
+		bRequestSuccess = VerifyAndFinalizeTask(Task, DataSize);
+	}
 
-		if (bIsPartialContent && Task->ResumeOffset > 0)
+	// 处理失败（重试或标记失败）
+	if (!bRequestSuccess)
+	{
+		bool bHandled = false;
+		HandleTaskFailure(Task, bHandled);
+		if (bHandled)
 		{
-			// 断点续传：追加到现有文件
-			bSaveSuccess = AppendDataToFile(Task->TempPath, Content);
-			if (bSaveSuccess)
-			{
-				UE_LOG(LogHotUpdate, Log, TEXT("Resumed download completed: %s (total: %lld bytes)"), *Task->SavePath, Task->ResumeOffset + DataSize);
-			}
+			return;
 		}
-		else
-		{
-			// 全新下载：直接保存
-			bSaveSuccess = FFileHelper::SaveArrayToFile(Content, *Task->TempPath);
-			if (bSaveSuccess)
-			{
-				UE_LOG(LogHotUpdate, Verbose, TEXT("Downloaded: %s (%lld bytes)"), *Task->SavePath, DataSize);
-			}
-		}
+	}
 
+	// 移到完成列表、广播、更新进度
+	ActiveTasks.Remove(Task);
+	CompletedTasks.Add(Task);
+	CurrentProgress.CurrentFileIndex = CompletedTasks.Num();
+	OnFileComplete.Broadcast(Task->SavePath, Task->bSuccess, Task->ErrorType);
+	UpdateProgress();
+	ProcessNextTask();
+}
+
+bool UHotUpdateHttpDownloader::SaveResponseToFile(TSharedPtr<FDownloadTask> Task, TSharedPtr<IHttpResponse> Response, bool bIsPartialContent, int64& OutDataSize)
+{
+	const TArray<uint8>& Content = Response->GetContent();
+	OutDataSize = Content.Num();
+
+	bool bSaveSuccess = false;
+
+	if (bIsPartialContent && Task->ResumeOffset > 0)
+	{
+		bSaveSuccess = AppendDataToFile(Task->TempPath, Content);
 		if (bSaveSuccess)
 		{
-			// 下载后立即校验 Hash（如果指定了期望 Hash）
-			if (!Task->ExpectedHash.IsEmpty())
-			{
-				FString ActualHash = UHotUpdateFileUtils::CalculateFileHash(Task->TempPath);
-				if (ActualHash != Task->ExpectedHash)
-				{
-					UE_LOG(LogHotUpdate, Error, TEXT("Hash verification failed for %s (expected: %s, actual: %s)"),
-						*Task->SavePath, *Task->ExpectedHash, *ActualHash);
-					// 删除损坏的临时文件
-					IPlatformFile& PF = FPlatformFileManager::Get().GetPlatformFile();
-					PF.DeleteFile(*Task->TempPath);
-					bRequestSuccess = false;
-					Task->ErrorType = EHotUpdateError::VerificationFailed;
-				}
-				else
-				{
-					UE_LOG(LogHotUpdate, Verbose, TEXT("Hash verified: %s"), *Task->SavePath);
-				}
-			}
-		}
-
-		if (bSaveSuccess && bRequestSuccess)
-		{
-			// 重命名临时文件为最终文件
-			IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
-			if (PlatformFile.FileExists(*Task->SavePath))
-			{
-				PlatformFile.DeleteFile(*Task->SavePath);
-			}
-
-			if (PlatformFile.MoveFile(*Task->SavePath, *Task->TempPath))
-			{
-				Task->DownloadedSize = Task->ResumeOffset + DataSize;
-				Task->bIsCompleted = true;
-				Task->bSuccess = true;
-			}
-			else
-			{
-				UE_LOG(LogHotUpdate, Error, TEXT("Failed to move temp file to final location: %s"), *Task->SavePath);
-				bRequestSuccess = false;
-			}
-		}
-		else if (bSaveSuccess && !bRequestSuccess)
-		{
-			// Hash 校验失败，已在上面处理
-		}
-		else
-		{
-			UE_LOG(LogHotUpdate, Error, TEXT("Failed to save file: %s"), *Task->TempPath);
-			bRequestSuccess = false;
+			UE_LOG(LogHotUpdate, Log, TEXT("Resumed download completed: %s (total: %lld bytes)"), *Task->SavePath, Task->ResumeOffset + OutDataSize);
 		}
 	}
 	else
 	{
-		UE_LOG(LogHotUpdate, Error, TEXT("Failed to download: %s (Response Code: %d)"), *Task->Url, ResponseCode);
+		bSaveSuccess = FFileHelper::SaveArrayToFile(Content, *Task->TempPath);
+		if (bSaveSuccess)
+		{
+			UE_LOG(LogHotUpdate, Verbose, TEXT("Downloaded: %s (%lld bytes)"), *Task->SavePath, OutDataSize);
+		}
 	}
 
-	// 处理失败：检查是否需要重试
-	if (!bRequestSuccess)
+	if (!bSaveSuccess)
 	{
-		Task->RetryCount++;
-		if (Task->RetryCount <= MaxRetryCount)
+		UE_LOG(LogHotUpdate, Error, TEXT("Failed to save file: %s"), *Task->TempPath);
+	}
+	return bSaveSuccess;
+}
+
+bool UHotUpdateHttpDownloader::VerifyAndFinalizeTask(TSharedPtr<FDownloadTask> Task, int64 DataSize)
+{
+	// Hash 校验
+	if (!Task->ExpectedHash.IsEmpty())
+	{
+		FString ActualHash = UHotUpdateFileUtils::CalculateFileHash(Task->TempPath);
+		if (ActualHash != Task->ExpectedHash)
 		{
-			UE_LOG(LogHotUpdate, Warning, TEXT("Download failed, retrying (%d/%d) after %.1fs: %s"),
-				Task->RetryCount, MaxRetryCount, RetryInterval, *Task->Url);
+			UE_LOG(LogHotUpdate, Error, TEXT("Hash verification failed for %s (expected: %s, actual: %s)"),
+				*Task->SavePath, *Task->ExpectedHash, *ActualHash);
+			IPlatformFile& PF = FPlatformFileManager::Get().GetPlatformFile();
+			PF.DeleteFile(*Task->TempPath);
+			Task->ErrorType = EHotUpdateError::VerificationFailed;
+			return false;
+		}
+		UE_LOG(LogHotUpdate, Verbose, TEXT("Hash verified: %s"), *Task->SavePath);
+	}
 
-			// 从活跃任务移除，延迟后重新加入待下载队列
-			ActiveTasks.Remove(Task);
+	// 重命名临时文件为最终文件
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+	if (PlatformFile.FileExists(*Task->SavePath))
+	{
+		PlatformFile.DeleteFile(*Task->SavePath);
+	}
 
-			// 使用定时器延迟重试
+	if (!PlatformFile.MoveFile(*Task->SavePath, *Task->TempPath))
+	{
+		UE_LOG(LogHotUpdate, Error, TEXT("Failed to move temp file to final location: %s"), *Task->SavePath);
+		return false;
+	}
+
+	Task->DownloadedSize = Task->ResumeOffset + DataSize;
+	Task->bIsCompleted = true;
+	Task->bSuccess = true;
+	return true;
+}
+
+void UHotUpdateHttpDownloader::HandleTaskFailure(TSharedPtr<FDownloadTask> Task, bool& bOutHandled)
+{
+	bOutHandled = false;
+	Task->RetryCount++;
+
+	if (Task->RetryCount <= MaxRetryCount)
+	{
+		UE_LOG(LogHotUpdate, Warning, TEXT("Download failed, retrying (%d/%d) after %.1fs: %s"),
+			Task->RetryCount, MaxRetryCount, RetryInterval, *Task->Url);
+
+		ActiveTasks.Remove(Task);
+
+		FTimerDelegate RetryDelegate;
+		RetryDelegate.BindUObject(this, &UHotUpdateHttpDownloader::RetryTask, Task);
+
+		if (UWorld* World = GetWorld())
+		{
 			FTimerHandle RetryTimerHandle;
-			FTimerDelegate RetryDelegate;
-			RetryDelegate.BindUObject(this, &UHotUpdateHttpDownloader::RetryTask, Task);
-
-			if (UWorld* World = GetWorld())
-			{
-				World->GetTimerManager().SetTimer(RetryTimerHandle, RetryDelegate, RetryInterval, false);
-			}
-			else
-			{
-				UE_LOG(LogHotUpdate, Error, TEXT("Cannot schedule retry: no World context. Marking as failed: %s"), *Task->Url);
-				Task->bIsCompleted = true;
-				Task->bSuccess = false;
-				Task->ErrorType = EHotUpdateError::DownloadFailed;
-				ActiveTasks.Remove(Task);
-				CompletedTasks.Add(Task);
-				OnFileComplete.Broadcast(Task->SavePath, false, Task->ErrorType);
-				UpdateProgress();
-				ProcessNextTask();
-			}
-
-			return;
+			World->GetTimerManager().SetTimer(RetryTimerHandle, RetryDelegate, RetryInterval, false);
+		}
+		else
+		{
+			UE_LOG(LogHotUpdate, Error, TEXT("Cannot schedule retry: no World context. Marking as failed: %s"), *Task->Url);
+			Task->bIsCompleted = true;
+			Task->bSuccess = false;
+			Task->ErrorType = EHotUpdateError::DownloadFailed;
+			CompletedTasks.Add(Task);
+			OnFileComplete.Broadcast(Task->SavePath, false, Task->ErrorType);
 		}
 
-		// 超过重试次数，标记为失败
-		Task->bIsCompleted = true;
-		Task->bSuccess = false;
-		UE_LOG(LogHotUpdate, Error, TEXT("Download failed after %d retries: %s"), MaxRetryCount, *Task->Url);
+		bOutHandled = true;
+		return;
 	}
 
-	// 移动到完成列表
-	ActiveTasks.Remove(Task);
-	CompletedTasks.Add(Task);
-
-	CurrentProgress.CurrentFileIndex = CompletedTasks.Num();
-	OnFileComplete.Broadcast(Task->SavePath, Task->bSuccess, Task->ErrorType);
-
-	UpdateProgress();
-	ProcessNextTask();
+	// 超过重试次数
+	Task->bIsCompleted = true;
+	Task->bSuccess = false;
+	UE_LOG(LogHotUpdate, Error, TEXT("Download failed after %d retries: %s"), MaxRetryCount, *Task->Url);
 }
 
 void UHotUpdateHttpDownloader::HandleRequestProgress(FHttpRequestPtr Request, uint64 BytesSent, uint64 BytesReceived, TSharedPtr<FDownloadTask> Task)
@@ -436,8 +435,12 @@ void UHotUpdateHttpDownloader::HandleRequestProgress(FHttpRequestPtr Request, ui
 
 void UHotUpdateHttpDownloader::UpdateProgress()
 {
-	// 计算已下载字节数
+	// 计算已下载字节数（包含 PendingTasks 中有断点续传数据的任务）
 	int64 TotalDownloaded = 0;
+	for (const TSharedPtr<FDownloadTask>& Task : PendingTasks)
+	{
+		TotalDownloaded += Task->DownloadedSize;
+	}
 	for (const TSharedPtr<FDownloadTask>& Task : ActiveTasks)
 	{
 		TotalDownloaded += Task->DownloadedSize;
@@ -477,7 +480,8 @@ FString UHotUpdateHttpDownloader::GetTempFilePath(const FString& OriginalPath) c
 
 int64 UHotUpdateHttpDownloader::GetExistingTempFileSize(const FString& TempPath) const
 {
-	return IFileManager::Get().FileSize(*TempPath);
+	int64 Size = IFileManager::Get().FileSize(*TempPath);
+	return Size > 0 ? Size : 0;
 }
 
 bool UHotUpdateHttpDownloader::AppendDataToFile(const FString& FilePath, const TArray<uint8>& Data)

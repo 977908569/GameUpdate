@@ -5,7 +5,8 @@
 #include "HotUpdateUtils.h"
 #include "HotUpdateEditor.h"
 #include "HotUpdateEditorStyle.h"
-#include "HotUpdatePakManager.h"
+#include "Core/HotUpdateFileUtils.h"
+#include "IPlatformFilePak.h"
 #include "EditorStyleSet.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/Input/SButton.h"
@@ -24,6 +25,80 @@
 #include "MainFrame.h"
 
 #define LOCTEXT_NAMESPACE "HotUpdatePakViewer"
+
+static TArray<FHotUpdatePakEntry> GetPakEntriesFromPakFile(const FString& PakPath)
+{
+	TArray<FHotUpdatePakEntry> Entries;
+
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+	if (!PlatformFile.FileExists(*PakPath))
+	{
+		UE_LOG(LogHotUpdateEditor, Error, TEXT("Pak file not found: %s"), *PakPath);
+		return Entries;
+	}
+
+	int64 FileSize = PlatformFile.FileSize(*PakPath);
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("Pak file size: %lld bytes, Path: %s"), FileSize, *PakPath);
+
+	TRefCountPtr<FPakFile> PakFile = new FPakFile(&PlatformFile, *PakPath, false);
+	if (!PakFile.IsValid() || !PakFile->IsValid())
+	{
+		UE_LOG(LogHotUpdateEditor, Error, TEXT("Failed to open PakFile: %s"), *PakPath);
+		return Entries;
+	}
+
+	int32 NumFiles = PakFile->GetNumFiles();
+	bool bHasFilenames = PakFile->HasFilenames();
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("Pak info - NumFiles: %d, HasFilenames: %s"), NumFiles, bHasFilenames ? TEXT("true") : TEXT("false"));
+
+	int32 IterationCount = 0;
+	for (FPakFile::FFilenameIterator It(*PakFile); It; ++It)
+	{
+		IterationCount++;
+		const FPakEntry& PakEntry = It.Info();
+		const FString& Filename = It.Filename();
+
+		FHotUpdatePakEntry Entry;
+		Entry.FileName = Filename;
+		Entry.UncompressedSize = PakEntry.UncompressedSize;
+		Entry.CompressedSize = PakEntry.Size;
+		Entry.Offset = PakEntry.Offset;
+		Entry.bIsCompressed = PakEntry.CompressionMethodIndex != 0;
+		Entry.bIsEncrypted = (PakEntry.Flags & FPakEntry::Flag_Encrypted) != 0;
+		Entry.FileHash = UHotUpdateFileUtils::BytesToHex(PakEntry.Hash, sizeof(PakEntry.Hash));
+		Entries.Add(Entry);
+	}
+
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("FFilenameIterator iterations: %d, Final entries: %d"), IterationCount, Entries.Num());
+
+	if (Entries.Num() == 0 && NumFiles > 0)
+	{
+		UE_LOG(LogHotUpdateEditor, Warning, TEXT("Trying FPakEntryIterator as fallback..."));
+		IterationCount = 0;
+		for (FPakFile::FPakEntryIterator It(*PakFile); It; ++It)
+		{
+			IterationCount++;
+			const FPakEntry& PakEntry = It.Info();
+			const FString* Filename = It.TryGetFilename();
+
+			if (Filename && !Filename->IsEmpty())
+			{
+				FHotUpdatePakEntry Entry;
+				Entry.FileName = *Filename;
+				Entry.UncompressedSize = PakEntry.UncompressedSize;
+				Entry.CompressedSize = PakEntry.Size;
+				Entry.Offset = PakEntry.Offset;
+				Entry.bIsCompressed = PakEntry.CompressionMethodIndex != 0;
+				Entry.bIsEncrypted = (PakEntry.Flags & FPakEntry::Flag_Encrypted) != 0;
+				Entry.FileHash = UHotUpdateFileUtils::BytesToHex(PakEntry.Hash, sizeof(PakEntry.Hash));
+				Entries.Add(Entry);
+			}
+		}
+		UE_LOG(LogHotUpdateEditor, Log, TEXT("FPakEntryIterator iterations: %d, entries with filename: %d"), IterationCount, Entries.Num());
+	}
+
+	return Entries;
+}
 
 void SHotUpdatePakViewerPanel::Construct(const FArguments& InArgs)
 {
@@ -493,8 +568,7 @@ void SHotUpdatePakViewerPanel::UpdateContentList()
 		return;
 	}
 
-	UHotUpdatePakManager* PakManager = NewObject<UHotUpdatePakManager>();
-	AllContentEntries = PakManager->GetPakEntries(SelectedPakPath);
+	AllContentEntries = GetPakEntriesFromPakFile(SelectedPakPath);
 
 	CurrentFileCount = AllContentEntries.Num();
 	for (const FHotUpdatePakEntry& Entry : AllContentEntries)

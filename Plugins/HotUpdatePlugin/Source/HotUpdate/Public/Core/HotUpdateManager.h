@@ -6,12 +6,11 @@
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "ControlFlow.h"
 #include "Core/HotUpdateTypes.h"
-#include "HotUpdateManifest.h"
+#include "HotUpdatePakManager.h"
+#include "Core/HotUpdateVersionStorage.h"
 #include "HotUpdateManager.generated.h"
 
 class UHotUpdateDownloaderBase;
-class UHotUpdatePakManager;
-class UHotUpdateVersionStorage;
 
 /**
  * 热更新管理器
@@ -142,6 +141,9 @@ private:
 	void StartFlow();
 	void BuildFlow();
 
+	/// 统一的 Flow 失败处理：设置状态、广播错误、广播版本检查结果、取消 Flow
+	void FailFlowAndNotify(EHotUpdateError ErrorType, const FString& ErrorMessage, TSharedPtr<FControlFlowNode> FlowHandle);
+
 	// == Flow 步骤回调 ==
 
 	void StepFetchLatest(FControlFlowNodeRef FlowHandle);
@@ -184,12 +186,10 @@ private:
 	TObjectPtr<UHotUpdateDownloaderBase> Downloader;
 
 	/// Pak 管理器
-	UPROPERTY(Transient)
-	TObjectPtr<UHotUpdatePakManager> PakManager;
+	TUniquePtr<FHotUpdatePakManager> PakManager;
 
 	/// 版本存储管理器
-	UPROPERTY(Transient)
-	TObjectPtr<UHotUpdateVersionStorage> VersionStorage;
+	TUniquePtr<FHotUpdateVersionStorage> VersionStorage;
 
 	/// 自动检查更新的定时器句柄
 	FTimerHandle AutoCheckTimerHandle;
@@ -204,6 +204,7 @@ private:
 	TSharedPtr<FControlFlowNode> ManifestFlowHandle;
 	TSharedPtr<FControlFlowNode> DownloadFlowHandle;
 	FString LatestJsonResponse;
-	FString ManifestJsonResponse;
+	FString ManifestUrl;
+	FString ManifestJsonBody;
 	bool bVersionCheckHasUpdate = false;
 };
