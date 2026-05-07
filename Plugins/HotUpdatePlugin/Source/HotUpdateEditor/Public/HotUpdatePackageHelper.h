@@ -62,9 +62,11 @@ public:
 	/**
 	 * 规范化资源路径为 Long Package Name 格式
 	 * - 去除前后空格
-	 * - 不以 / 开头时自动添加 /Game/ 前缀
-	 * @param Path 输入路径（可能是相对路径如 "Maps/Start" 或虚拟路径如 "/Game/Maps/Start"）
-	 * @return 规范化的虚拟路径（如 "/Game/Maps/Start"）
+	 * - 虚拟路径（/开头）直接返回
+	 * - 绝对磁盘路径（含盘符）通过 FilePathToLongPackageName 转换
+	 * - 相对路径自动添加 /Game/ 前缀
+	 * @param Path 输入路径（可能是相对路径如 "Maps/Start"、虚拟路径如 "/Game/Maps/Start" 或磁盘路径）
+	 * @return 规范化的虚拟路径（如 "/Game/Maps/Start"），无法转换时返回原路径
 	 */
 	static FString NormalizeAssetPath(const FString& Path);
 
@@ -122,31 +124,7 @@ public:
 	static FString GetCookedPlatformDir(EHotUpdatePlatform Platform, EHotUpdateAndroidTextureFormat AndroidTextureFormat);
 
 private:
-	/** 确保路径末尾有斜杠 */
-	static FString EnsureTrailingSlash(const FString& Path);
-
 	/** 获取平台目录名（含 Android 纹理格式后缀） */
 	static FString GetPlatformDirName(EHotUpdatePlatform Platform, EHotUpdateAndroidTextureFormat TextureFormat);
 
-	/** 获取规范化后的引擎/项目目录（带末尾斜杠） */
-	struct FNormalizedDirectories
-	{
-		FString EngineDir;
-		FString ProjectDir;
-		FString EnginePluginsDir;
-		FString ProjectPluginsDir;
-	};
-	static FNormalizedDirectories GetNormalizedDirectories();
-
-	/** 从路径中提取 Plugins/ 开始的相对部分 */
-	static FString ExtractPluginsRelativePath(const FString& Path);
-
-	/** 判断插件属于引擎还是项目，返回 Cooked 目录的 SubDir */
-	static FString GetPluginCookedSubDir(const FString& PluginPath);
-
-	/** 将 FilePathRoot 规范化为 Pak 挂载格式（../../../ 开头） */
-	static FString NormalizeFilePathRootToPakMount(const FString& FilePathRoot, const FString& PackageNameRoot);
-
-	/** 在 CookedBaseDir 下查找 .umap/.uasset 文件（优先 .umap） */
-	static FString FindCookedFileWithFallback(const FString& CookedBaseDir, const FString& RelPath);
 };

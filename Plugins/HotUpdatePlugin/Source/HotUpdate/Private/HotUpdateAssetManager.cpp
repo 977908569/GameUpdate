@@ -43,9 +43,9 @@ bool UHotUpdateAssetManager::GetPackageChunkIds(
 		return true;
 	}
 
-	// 未找到 → Chunk 11
+	// 未找到 → 兜底 Chunk 1（cook 时发现的额外资产归入主 patch chunk）
 	OutChunkList.Empty();
-	OutChunkList.Add(11);
+	OutChunkList.Add(1);
 	return true;
 }
 

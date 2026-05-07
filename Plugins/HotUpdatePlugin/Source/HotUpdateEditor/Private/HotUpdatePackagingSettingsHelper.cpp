@@ -136,10 +136,6 @@ TArray<FString> FHotUpdatePackagingSettingsHelper::CollectAlwaysCookAssets(UProj
 
 		// 确保路径以 / 开头
 		FString NormalizedPath = FHotUpdatePackageHelper::NormalizeAssetPath(Path);
-		if (!NormalizedPath.StartsWith(TEXT("/")))
-		{
-			NormalizedPath = TEXT("/") + NormalizedPath;
-		}
 
 		// 使用 AssetRegistry 收集目录下所有资源
 		FARFilter Filter;

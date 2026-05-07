@@ -531,10 +531,15 @@ void FHotUpdateBaseVersionBuilder::PreComputeChunkMapping()
 
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("预计算 Chunk 分配，热更资源数: %d"), PatchAssetPaths.Num());
 
-	// 如果策略为 None，保持当前行为（全部 -> Chunk 11）
+	// 策略为 None：所有热更资源分配到同一个 Chunk（ChunkIdStart，默认 1）
 	if (CurrentConfig.MinimalPackageConfig.PatchChunkStrategy == EHotUpdateChunkStrategy::None)
 	{
-		UE_LOG(LogHotUpdateEditor, Log, TEXT("分包策略为 None，热更资源全部分配到 Chunk 11"));
+		const int32 DefaultChunkId = FMath::Max(1, CurrentConfig.MinimalPackageConfig.PatchChunkConfig.SizeBasedConfig.ChunkIdStart);
+		for (const FString& AssetPath : PatchAssetPaths)
+		{
+			CachedChunkMapping.Add(AssetPath, DefaultChunkId);
+		}
+		UE_LOG(LogHotUpdateEditor, Log, TEXT("分包策略为 None，%d 个热更资源全部分配到 Chunk %d"), PatchAssetPaths.Num(), DefaultChunkId);
 		return;
 	}
 
@@ -565,7 +570,7 @@ void FHotUpdateBaseVersionBuilder::PreComputeChunkMapping()
 	}
 	if (ChunkConfig.DefaultChunkId < 0)
 	{
-		ChunkConfig.DefaultChunkId = 11;  // 未匹配的资源默认分配到 Chunk 11
+		ChunkConfig.DefaultChunkId = 1;  // 未匹配的资源默认分配到 Chunk 1
 	}
 
 	FHotUpdateChunkAnalysisResult Result = FHotUpdateChunkManager::AnalyzeAndCreateChunks(PatchAssetPaths, AssetDiskPaths, ChunkConfig);
@@ -961,6 +966,7 @@ bool FHotUpdateBaseVersionBuilder::BuildManifestJson(
 		ChunkObject->SetStringField(TEXT("containerName"), Container.ContainerName);
 		ChunkObject->SetStringField(TEXT("containerType"),
 			Container.ContainerType == EHotUpdateContainerType::Base ? TEXT("base") : TEXT("patch"));
+		ChunkObject->SetStringField(TEXT("version"), CurrentConfig.VersionString);
 
 		// IoStore 格式字段
 		if (!Container.UtocFile.Path.IsEmpty())
