@@ -248,9 +248,7 @@ void UHotUpdateHttpDownloader::ProcessNextTask()
 		}
 
 		Request->OnProcessRequestComplete().BindUObject(this, &UHotUpdateHttpDownloader::HandleRequestComplete, Task);
-
-		// 注意: UE5.7 中 IHttpRequest 已移除 OnRequestProgress 接口
-		// 进度更新在 HandleRequestComplete 中进行，暂不支持实时下载进度回调
+		Request->OnRequestProgress64().BindUObject(this, &UHotUpdateHttpDownloader::HandleRequestProgress, Task);
 
 		ActiveRequests.Add(Request);
 
@@ -425,6 +423,15 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 
 	UpdateProgress();
 	ProcessNextTask();
+}
+
+void UHotUpdateHttpDownloader::HandleRequestProgress(FHttpRequestPtr Request, uint64 BytesSent, uint64 BytesReceived, TSharedPtr<FDownloadTask> Task)
+{
+	if (Task.IsValid() && !Task->bIsCompleted)
+	{
+		Task->DownloadedSize = Task->ResumeOffset + static_cast<int64>(BytesReceived);
+		UpdateProgress();
+	}
 }
 
 void UHotUpdateHttpDownloader::UpdateProgress()

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "HttpFwd.h"
 #include "Download/HotUpdateDownloaderBase.h"
 #include "HotUpdateHttpDownloader.generated.h"
 
@@ -53,6 +54,9 @@ public:
 
 	/// 处理 HTTP 请求完成
 	void HandleRequestComplete(TSharedPtr<class IHttpRequest> Request, TSharedPtr<class IHttpResponse> Response, bool bSuccess, TSharedPtr<FDownloadTask> Task);
+
+	/// 处理下载进度回调（实时更新字节数）
+	void HandleRequestProgress(FHttpRequestPtr Request, uint64 BytesSent, uint64 BytesReceived, TSharedPtr<FDownloadTask> Task);
 
 	/// 更新进度
 	void UpdateProgress();
