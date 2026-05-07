@@ -137,10 +137,14 @@ bool UHotUpdateFileUtils::IsEngineAsset(const FString& PackagePath)
 		return false;
 	}
 
-	// 转换为磁盘全路径，判断是否在 Engine 目录下
-	FString Filename = FPackageName::LongPackageNameToFilename(PackagePath);
-	FString FullPath = IFileManager::Get().ConvertToAbsolutePathForExternalAppForWrite(*Filename);
+	// 通过挂载点解析判断是否属于 /Engine/，比磁盘路径字符串匹配更可靠
+	// 用户创建名为 "Engine" 的文件夹不会误判
+	TStringBuilder<256> PackageNameRoot, FilePathRoot, RelPath;
+	if (FPackageName::TryGetMountPointForPath(PackagePath, PackageNameRoot, FilePathRoot, RelPath))
+	{
+		return FStringView(PackageNameRoot) == TEXT("/Engine/");
+	}
 
-	// 全路径包含 /Engine/ 则为引擎资源
-	return FullPath.Contains(TEXT("/Engine/"));
+	// 挂载点解析失败时保守返回 false（未知路径不应视为引擎资产）
+	return false;
 }

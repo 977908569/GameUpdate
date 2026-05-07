@@ -505,7 +505,7 @@ void FHotUpdatePatchPackageBuilder::SplitHashesByAssetType(
 		// Manifest 中虚拟路径无扩展名（如 /Game/TopDown/Lvl_TopDown）是 UE 资产
 		// 有扩展名的（如 /Game/Setting/txt_pak.txt）是非资产文件
 		const FString Extension = FPaths::GetExtension(Path);
-		const bool bIsAsset = Extension.IsEmpty() || Path.EndsWith(TEXT(".uasset")) || Path.EndsWith(TEXT(".umap"));
+		const bool bIsAsset = Extension.IsEmpty() || FHotUpdatePackageHelper::IsUAssetExtension(Extension);
 		if (bIsAsset)
 		{
 			OutAssetHashes.Add(Path, Pair.Value);

@@ -72,13 +72,6 @@ public:
 	 */
 	static void FilterEditorContent(TArray<FString>& AssetPaths);
 
-	/**
-	 * 将路径转换为标准资源路径
-	 * @param Path 路径字符串
-	 * @return 标准化的资源路径
-	 */
-	static FString NormalizeAssetPath(const FString& Path);
-
 private:
 	/**
 	 * 检查路径是否是编辑器内容

@@ -5,6 +5,7 @@
 #include "HotUpdateEditorStyle.h"
 #include "HotUpdateNotificationHelper.h"
 #include "HotUpdateCustomPackageBuilder.h"
+#include "HotUpdatePackageHelper.h"
 #include "Styling/AppStyle.h"
 #include "Framework/Application/SlateApplication.h"
 #include "DesktopPlatformModule.h"
@@ -779,7 +780,7 @@ FReply SHotUpdateCustomPackagingPanel::OnSelectUassetFilesClicked()
 		for (const FString& FilePath : SelectedFiles)
 		{
 			FString Ext = FPaths::GetExtension(FilePath);
-			if ((Ext == TEXT("uasset") || Ext == TEXT("umap")) && !UassetFilePaths.Contains(FilePath))
+			if (FHotUpdatePackageHelper::IsUAssetExtension(Ext) && !UassetFilePaths.Contains(FilePath))
 			{
 				UassetFilePaths.Add(FilePath);
 			}
@@ -868,7 +869,7 @@ FReply SHotUpdateCustomPackagingPanel::OnSelectNonAssetFilesClicked()
 		{
 			// 排除 uasset/umap 文件
 			FString Ext = FPaths::GetExtension(FilePath);
-			if (Ext == TEXT("uasset") || Ext == TEXT("umap"))
+			if (FHotUpdatePackageHelper::IsUAssetExtension(Ext))
 			{
 				continue;
 			}

@@ -106,7 +106,7 @@ TArray<FString> FHotUpdatePackagingSettingsHelper::CollectMapsToCook(UProjectPac
 
 	for (const FFilePath& MapPath : Settings->MapsToCook)
 	{
-		FString NormalizedPath = NormalizeAssetPath(MapPath.FilePath);
+		FString NormalizedPath = FHotUpdatePackageHelper::NormalizeAssetPath(MapPath.FilePath);
 		if (!NormalizedPath.IsEmpty())
 		{
 			Result.Add(NormalizedPath);
@@ -135,7 +135,7 @@ TArray<FString> FHotUpdatePackagingSettingsHelper::CollectAlwaysCookAssets(UProj
 		}
 
 		// 确保路径以 / 开头
-		FString NormalizedPath = NormalizeAssetPath(Path);
+		FString NormalizedPath = FHotUpdatePackageHelper::NormalizeAssetPath(Path);
 		if (!NormalizedPath.StartsWith(TEXT("/")))
 		{
 			NormalizedPath = TEXT("/") + NormalizedPath;
@@ -209,11 +209,6 @@ void FHotUpdatePackagingSettingsHelper::FilterEditorContent(TArray<FString>& Ass
 	}
 }
 
-FString FHotUpdatePackagingSettingsHelper::NormalizeAssetPath(const FString& Path)
-{
-	return FHotUpdatePackageHelper::NormalizeAssetPath(Path);
-}
-
 bool FHotUpdatePackagingSettingsHelper::IsEditorContent(const FString& AssetPath)
 {
 	// 检查是否是编辑器相关路径
@@ -239,7 +234,7 @@ public:
 		{
 			// 排除 UE 资产文件，这些应该通过 AssetRegistry 收集
 			FString Extension = FPaths::GetExtension(FilenameOrDirectory);
-			if (Extension != TEXT("uasset") && Extension != TEXT("umap") &&
+			if (!FHotUpdatePackageHelper::IsUAssetExtension(Extension) &&
 				Extension != TEXT("uexp") && Extension != TEXT("ubulk") &&
 				Extension != TEXT("uptnl"))
 			{

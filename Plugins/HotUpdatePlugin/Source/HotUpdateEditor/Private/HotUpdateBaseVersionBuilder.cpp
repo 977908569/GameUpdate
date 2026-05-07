@@ -325,7 +325,7 @@ void FHotUpdateBaseVersionBuilder::ExecuteBuildInternal()
 	Result.bSuccess = true;
 	Result.ResourceHashPath = FPaths::Combine(
 		FHotUpdateVersionManager::GetVersionDir(CurrentConfig.VersionString, CurrentConfig.Platform, CurrentConfig.AndroidTextureFormat),
-		TEXT("resources_hash.json"));
+		TEXT("manifest.json"));
 
 	bIsBuilding = false;
 

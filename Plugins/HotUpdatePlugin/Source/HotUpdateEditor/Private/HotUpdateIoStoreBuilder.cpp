@@ -287,7 +287,7 @@ bool FHotUpdateIoStoreBuilder::GenerateResponseFile(
 
 		// 源路径使用正斜杠
 		FString UnixDiskPath = DiskPath;
-		UnixDiskPath.ReplaceCharInline('\\', '/');
+		FPaths::NormalizeFilename(UnixDiskPath);
 
 		ResponseContent += (CompressionFormat != TEXT("None"))
 				? FString::Printf(TEXT("\"%s\" \"%s\" -compress\n"), *UnixDiskPath, *PakInternalPath)
@@ -326,10 +326,10 @@ bool FHotUpdateIoStoreBuilder::GenerateResponseFile(
 				if (PlatformFile.FileExists(*CompanionDiskPath))
 				{
 					FString CompanionPakPath = PakInternalDir / (PakInternalBaseFilename + TEXT(".") + CompanionExt);
-					CompanionPakPath.ReplaceCharInline('\\', '/');
+					FPaths::NormalizeFilename(CompanionPakPath);
 
 					FString UnixCompanionDiskPath = CompanionDiskPath;
-					UnixCompanionDiskPath.ReplaceCharInline('\\', '/');
+					FPaths::NormalizeFilename(UnixCompanionDiskPath);
 
 					ResponseContent += (CompressionFormat != TEXT("None"))
 							? FString::Printf(TEXT("\"%s\" \"%s\" -compress\n"), *UnixCompanionDiskPath, *CompanionPakPath)
@@ -365,7 +365,7 @@ bool FHotUpdateIoStoreBuilder::GenerateResponseFile(
 		if (FPaths::FileExists(*PlaceholderSource))
 		{
 			FString PlaceholderSourceUnix = PlaceholderSource;
-			PlaceholderSourceUnix.ReplaceCharInline('\\', '/');
+			FPaths::NormalizeFilename(PlaceholderSourceUnix);
 			FString PlaceholderDest = FString::Printf(TEXT("../../../Engine/Content/__MountPointPlaceholder__/%s.uproject"), *ProjectName);
 			ResponseContent += FString::Printf(TEXT("\"%s\" \"%s\"\n"), *PlaceholderSourceUnix, *PlaceholderDest);
 			UE_LOG(LogHotUpdateEditor, Verbose, TEXT("添加 mount point 占位条目: %s -> %s"), *PlaceholderSourceUnix, *PlaceholderDest);
@@ -418,7 +418,7 @@ FString FHotUpdateIoStoreBuilder::BuildUnrealPakCommandLine(
 	const FHotUpdateIoStoreConfig& Config)
 {
 	FString ProjectDir = FPaths::ProjectDir();
-	ProjectDir.ReplaceCharInline('\\', '/');
+	FPaths::NormalizeFilename(ProjectDir);
 
 	FString CmdLine;
 
