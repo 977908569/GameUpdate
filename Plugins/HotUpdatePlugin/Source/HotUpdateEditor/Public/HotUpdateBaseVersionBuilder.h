@@ -41,10 +41,6 @@ struct HOTUPDATEEDITOR_API FHotUpdateBaseVersionBuildConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	EHotUpdateAndroidTextureFormat AndroidTextureFormat;
 
-	/// 是否跳过编译步骤（如果项目已编译，可以跳过以避免 Live Coding 冲突）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	bool bSkipBuild;
-
 	/// 同步执行模式
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bSynchronousMode;
@@ -64,7 +60,6 @@ struct HOTUPDATEEDITOR_API FHotUpdateBaseVersionBuildConfig
 		, BuildConfiguration(EHotUpdateBuildConfiguration::Development)
 		, AndroidPackageName(TEXT("com.dragonli.czm"))
 		, AndroidTextureFormat(EHotUpdateAndroidTextureFormat::ETC2)
-		, bSkipBuild(false)
 		, bSynchronousMode(false)
 	{
 	}

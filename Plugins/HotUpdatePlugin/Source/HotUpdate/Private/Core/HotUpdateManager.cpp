@@ -211,54 +211,53 @@ bool UHotUpdateManager::ApplyUpdate()
 
 	if (bSuccess)
 	{
-		// 挂载新的 Pak/IoStore 文件
+		// 按 Manifest 中的容器列表挂载
 		if (PakManager)
 		{
 			UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
-			FString PakDir = Settings->GetLocalPakFullPath() / LatestVersion.ToString();
-
-			IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
-
-			// 查找该版本目录下的所有 .pak 文件
-			TArray<FString> PakFiles;
-			PlatformFile.FindFilesRecursively(PakFiles, *PakDir, TEXT(".pak"));
-
-			// 查找该版本目录下的所有 .utoc 文件（IoStore 容器）
-			TArray<FString> UtocFiles;
-			PlatformFile.FindFilesRecursively(UtocFiles, *PakDir, TEXT(".utoc"));
+			FString BasePakDir = Settings->GetLocalPakFullPath();
 
 			int32 MountedCount = 0;
-			int32 PakOrder = PakManager->CalculatePakOrder(LatestVersion);
 
-			// 挂载 .pak 文件
-			for (const FString& PakFile : PakFiles)
+			for (const FHotUpdateContainerInfo& Container : CachedServerManifest.Containers)
 			{
-				if (PakManager->MountPak(PakFile, PakOrder))
+				// 各容器从自己版本目录挂载，用自己的版本计算挂载顺序
+				FString ContainerPakDir = Container.Version.IsEmpty() ? BasePakDir / LatestVersion.ToString() : BasePakDir / Container.Version;
+				FHotUpdateVersionInfo ContainerVersion = Container.Version.IsEmpty() ? LatestVersion : FHotUpdateVersionInfo::FromString(Container.Version);
+				int32 PakOrder = PakManager->CalculatePakOrder(ContainerVersion);
+
+				// Pak 容器
+				if (!Container.PakFile.Path.IsEmpty())
 				{
-					MountedCount++;
-					UE_LOG(LogHotUpdate, Log, TEXT("Mounted pak file: %s"), *PakFile);
+					FString PakFilePath = ContainerPakDir / Container.PakFile.Path;
+					if (PakManager->MountPak(PakFilePath, PakOrder))
+					{
+						MountedCount++;
+						UE_LOG(LogHotUpdate, Log, TEXT("Mounted pak: %s"), *PakFilePath);
+					}
+					else
+					{
+						UE_LOG(LogHotUpdate, Warning, TEXT("Failed to mount pak: %s"), *PakFilePath);
+					}
 				}
-				else
+
+				// IoStore 容器
+				if (!Container.UtocFile.Path.IsEmpty())
 				{
-					UE_LOG(LogHotUpdate, Warning, TEXT("Failed to mount pak file: %s"), *PakFile);
+					FString UtocFilePath = ContainerPakDir / Container.UtocFile.Path;
+					if (PakManager->MountPak(UtocFilePath, PakOrder))
+					{
+						MountedCount++;
+						UE_LOG(LogHotUpdate, Log, TEXT("Mounted IoStore: %s"), *UtocFilePath);
+					}
+					else
+					{
+						UE_LOG(LogHotUpdate, Warning, TEXT("Failed to mount IoStore: %s"), *UtocFilePath);
+					}
 				}
 			}
 
-			// 挂载 IoStore 容器（.utoc）
-			for (const FString& UtocFile : UtocFiles)
-			{
-				if (PakManager->MountPak(UtocFile, PakOrder))
-				{
-					MountedCount++;
-					UE_LOG(LogHotUpdate, Log, TEXT("Mounted IoStore container: %s"), *UtocFile);
-				}
-				else
-				{
-					UE_LOG(LogHotUpdate, Warning, TEXT("Failed to mount IoStore container: %s"), *UtocFile);
-				}
-			}
-
-			if (MountedCount == 0 && (PakFiles.Num() > 0 || UtocFiles.Num() > 0))
+			if (MountedCount == 0 && CachedServerManifest.Containers.Num() > 0)
 			{
 				bSuccess = false;
 				UE_LOG(LogHotUpdate, Error, TEXT("Failed to mount any pak/IoStore files"));
@@ -390,7 +389,7 @@ void UHotUpdateManager::SetState(EHotUpdateState NewState)
 bool UHotUpdateManager::VerifyDownloadedFiles()
 {
 	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
-	FString SaveDir = Settings->GetLocalPakFullPath() / LatestVersion.ToString();
+	FString BaseSaveDir = Settings->GetLocalPakFullPath();
 	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
 
 	int32 VerifiedCount = 0;
@@ -433,9 +432,11 @@ bool UHotUpdateManager::VerifyDownloadedFiles()
 	// 验证容器文件
 	for (const FHotUpdateContainerInfo& Container : VersionCheckResult.UpdateContainers)
 	{
+		FString ContainerSaveDir = Container.Version.IsEmpty() ? BaseSaveDir / LatestVersion.ToString() : BaseSaveDir / Container.Version;
+
 		if (!Container.UtocFile.Path.IsEmpty())
 		{
-			FString UtocFilePath = SaveDir / Container.UtocFile.Path;
+			FString UtocFilePath = ContainerSaveDir / Container.UtocFile.Path;
 			if (VerifyFile(UtocFilePath, Container.UtocFile.Size, Container.UtocFile.Hash))
 			{
 				VerifiedCount++;
@@ -449,7 +450,7 @@ bool UHotUpdateManager::VerifyDownloadedFiles()
 
 		if (!Container.UcasFile.Path.IsEmpty())
 		{
-			FString UcasFilePath = SaveDir / Container.UcasFile.Path;
+			FString UcasFilePath = ContainerSaveDir / Container.UcasFile.Path;
 			if (VerifyFile(UcasFilePath, Container.UcasFile.Size, Container.UcasFile.Hash))
 			{
 				VerifiedCount++;
@@ -463,7 +464,7 @@ bool UHotUpdateManager::VerifyDownloadedFiles()
 
 		if (!Container.PakFile.Path.IsEmpty())
 		{
-			FString PakFilePath = SaveDir / Container.PakFile.Path;
+			FString PakFilePath = ContainerSaveDir / Container.PakFile.Path;
 			if (VerifyFile(PakFilePath, Container.PakFile.Size, Container.PakFile.Hash))
 			{
 				VerifiedCount++;

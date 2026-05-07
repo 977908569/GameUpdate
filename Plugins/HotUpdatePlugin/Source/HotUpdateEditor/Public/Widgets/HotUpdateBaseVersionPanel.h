@@ -97,8 +97,6 @@ private:
 	TArray<TSharedPtr<EHotUpdateBuildConfiguration>> BuildConfigOptions;
 	TSharedPtr<EHotUpdateBuildConfiguration> SelectedBuildConfig;
 
-	TSharedPtr<SCheckBox> SkipBuildCheckBox;
-
 	// UI 控件
 	TSharedPtr<SButton> BuildButton;
 	TSharedPtr<SButton> CancelButton;

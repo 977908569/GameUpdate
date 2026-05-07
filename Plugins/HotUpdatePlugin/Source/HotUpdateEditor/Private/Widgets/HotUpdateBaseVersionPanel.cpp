@@ -275,23 +275,6 @@ TSharedRef<SWidget> SHotUpdateBaseVersionPanel::CreateConfigSection()
 				)
 			]
 		]
-	// 跳过编译选项（解决 Live Coding 冲突）
-	+ SVerticalBox::Slot()
-	.AutoHeight()
-	.Padding(0, 4)
-	[
-		SAssignNew(SkipBuildCheckBox, SCheckBox)
-		.IsChecked(BuildConfig.bSkipBuild ? ECheckBoxState::Checked : ECheckBoxState::Unchecked)
-		.OnCheckStateChanged_Lambda([this](ECheckBoxState NewState) {
-			BuildConfig.bSkipBuild = (NewState == ECheckBoxState::Checked);
-		})
-		.ToolTipText(LOCTEXT("SkipBuildTooltip", "如果项目已编译，跳过编译步骤可以避免编辑器运行时的 Live Coding 冲突"))
-		[
-			SNew(STextBlock)
-			.Text(LOCTEXT("SkipBuild", "跳过编译 (编辑器运行时需要)"))
-			.Font(FHotUpdateEditorStyle::GetNormalFont())
-		]
-	]
 	// 分隔线
 	+ SVerticalBox::Slot()
 	.AutoHeight()

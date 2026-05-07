@@ -198,13 +198,22 @@ python upload_hotpatch.py
 4. 在服务器生成 `latest.json`（指向最新版本的 manifest.json）
 5. 设置文件权限并验证 HTTP 可访问
 
-`latest.json` 格式示例：
+`latest.json` 格式示例（按平台组织）：
 
 ```json
-{ "manifestUrl": "http://your-server.com/hotpatch/1.0.1/Windows/manifest.json" }
+{
+  "platforms": {
+    "Windows": {
+      "manifestUrl": "http://your-server.com/hotpatch/1.0.1/Windows/manifest.json"
+    },
+    "Android": {
+      "manifestUrl": "http://your-server.com/hotpatch/1.0.1/Android/manifest.json"
+    }
+  }
+}
 ```
 
-> **提示**：使用前需修改脚本中的 `SERVER_HOST`、`REMOTE_BASE_DIR`、版本号等配置项。
+> **提示**：使用前需修改脚本中的 `HOST`、`REMOTE_BASE`、`UPLOAD_ITEMS`、`LATEST_VERSIONS` 等配置项。运行时客户端根据当前平台自动选择对应的 manifestUrl，若 `platforms` 中无当前平台则报错。
 
 ## 分包功能
 
@@ -364,10 +373,11 @@ UHotUpdateDownloaderBase* UHotUpdateDownloaderBase::CreateDownloader(UObject* Ou
 `CheckForUpdate()` 是两步流程，不是单次 HTTP 请求：
 
 1. 请求 `ManifestUrl`（配置为 `latest.json` 的固定 URL）
-2. 若响应包含 `manifestUrl` 字段，则再请求该 URL 获取实际 `manifest.json`
-3. 若无 `manifestUrl`，将响应本身作为 manifest 解析（向后兼容）
+2. 解析 `latest.json`，通过 `FPlatformProperties::PlatformName()` 获取当前平台，在 `platforms` 字段中查找对应平台的 `manifestUrl`
+3. 请求平台对应的 manifestUrl 获取实际 `manifest.json`
+4. 若响应无 `platforms` 字段，则将响应本身作为 manifest 解析（向后兼容）
 
-这种设计将"最新版本是什么"的查询与 manifest 本身解耦，服务端只需维护一个轻量级的重定向文件。
+这种设计将"最新版本是什么"的查询与 manifest 本身解耦，同时支持多平台差异化部署。
 
 #### 容器级增量下载
 
@@ -421,7 +431,7 @@ Manifest JSON 格式包含以下字段：
 
 ```
 编辑器: 资源 → Chunk 分配（ChunkMapping 配置） → IoStore/Pak 构建 → 清单生成 → 版本注册
-运行时: 检查更新(HTTP) → 解析清单 → 增量计算(容器级) → 下载(并发) → 校验哈希 → 挂载容器 → 更新版本
+运行时: 检查更新(HTTP) → 平台发现(latest.json) → 解析清单 → 增量计算(容器级) → 下载(并发) → 校验哈希 → 挂载容器 → 更新版本
 ```
 
 ## 目录结构
@@ -568,16 +578,24 @@ LogHotUpdateEditor=Verbose
 
 ### latest.json 是什么？为什么不是直接请求 manifest.json？
 
-`ManifestUrl` 指向的是一个固定的 `latest.json` URL，而非 manifest 本身。`latest.json` 是一个轻量级重定向文件：
+`ManifestUrl` 指向的是一个固定的 `latest.json` URL，而非 manifest 本身。`latest.json` 是一个按平台组织的轻量级重定向文件：
 
 ```json
-{ "manifestUrl": "http://server/hotpatch/1.0.1/Windows/manifest.json" }
+{
+  "platforms": {
+    "Windows": { "manifestUrl": "http://server/hotpatch/1.0.1/Windows/manifest.json" },
+    "Android": { "manifestUrl": "http://server/hotpatch/1.0.1/Android/manifest.json" }
+  }
+}
 ```
+
+运行时客户端通过 `FPlatformProperties::PlatformName()` 获取当前平台标识，自动选择对应的 manifestUrl。若 `platforms` 中无当前平台条目，会输出错误日志并取消更新流程。
 
 好处：
 - 版本发布时只需更新 `latest.json`，无需移动 manifest 文件
 - 客户端始终请求同一个 URL 即可获取最新版本
-- 向后兼容：若 `latest.json` 无 `manifestUrl` 字段，则直接作为 manifest 解析
+- 多平台支持：不同平台下载不同路径的资源
+- 若响应直接包含 manifest 数据（无 `platforms` 字段），则作为 manifest 解析（向后兼容）
 
 ### HTTP 连接失败
 

@@ -22,7 +22,7 @@
 		 * -output         输出目录路径
 		 * -manifest       基础版本Manifest文件路径 (热更包需要)
 		 * -shipping       是否为发布版本构建 (base 模式)
-		 * -skipbuild      是否跳过编译步骤 (base 模式，避免 Live Coding 冲突)
+		 * -skipbuild      是否跳过编译步骤 (仅 patch 模式，base 模式必须编译)
 		 * -minimal        启用最小包模式 (base 模式)
 		 * -whitelist      白名单目录，分号分隔 (如 /Game/UI;/Game/Startup)
 		 * -chunkstrategy  分包策略: None(不分包), Size(按大小分包)

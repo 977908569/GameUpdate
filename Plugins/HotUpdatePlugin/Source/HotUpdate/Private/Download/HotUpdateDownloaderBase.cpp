@@ -37,12 +37,15 @@ void UHotUpdateDownloaderBase::AddContainerDownloadTasks(const TArray<FHotUpdate
 			ContainerBaseUrl = BaseUrl;
 		}
 
+		// 各容器保存到自己版本目录下（如 1.0.1/Paks/、1.0.2/Paks/）
+		FString ContainerSaveDir = Container.Version.IsEmpty() ? SaveDir : FPaths::GetPath(SaveDir) / Container.Version;
+
 		auto DownloadFile = [&](const FHotUpdateFileInfo& File)
 		{
 			if (File.Path.IsEmpty() || File.Size <= 0) return;
 
 			FString FullUrl = ContainerBaseUrl.IsEmpty() ? Container.CustomDownloadUrl : ContainerBaseUrl / File.Path;
-			FString SavePath = SaveDir / File.Path;
+			FString SavePath = ContainerSaveDir / File.Path;
 			AddDownloadTask(FullUrl, SavePath, File.Size, File.Hash);
 		};
 

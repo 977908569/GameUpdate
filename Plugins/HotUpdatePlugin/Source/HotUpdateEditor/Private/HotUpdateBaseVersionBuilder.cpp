@@ -392,12 +392,9 @@ FString FHotUpdateBaseVersionBuilder::GenerateUATCommand()
 	Params += FString::Printf(TEXT(" -archivedirectory=\"%s\""), *OutputDir);
 	Params += TEXT(" -noP4");
 
-	// 完整打包：Cook + Stage + Pak + Archive
+	// 完整打包：Cook + Build + Stage + Pak + Archive（基础包必须编译，Stage 需要 receipt 文件）
 	Params += TEXT(" -cook");
-	if (!CurrentConfig.bSkipBuild)
-	{
-		Params += TEXT(" -build");
-	}
+	Params += TEXT(" -build");
 	Params += TEXT(" -stage");
 	Params += TEXT(" -archive");
 	Params += TEXT(" -pak");
