@@ -123,9 +123,6 @@ protected:
 	/// 验证下载文件
 	bool VerifyDownloadedFiles();
 
-	/// 构建资源下载基础 URL
-	FString BuildDownloadBaseUrl() const;
-
 	/// 清理旧版本
 	void CleanupOldVersions();
 

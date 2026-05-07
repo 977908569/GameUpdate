@@ -151,7 +151,7 @@ void UHotUpdateHttpDownloader::ResumeDownload()
 	UE_LOG(LogHotUpdate, Log, TEXT("Download resumed"));
 }
 
-void UHotUpdateHttpDownloader::CancelDownload()
+void UHotUpdateHttpDownloader::CancelDownload(bool bDeleteTempFiles)
 {
 	bIsDownloading = false;
 	bIsPaused = false;
@@ -166,12 +166,33 @@ void UHotUpdateHttpDownloader::CancelDownload()
 	}
 	ActiveRequests.Empty();
 
+	// 可选：删除临时文件
+	if (bDeleteTempFiles)
+	{
+		auto DeleteTempFiles = [](const TArray<TSharedPtr<FDownloadTask>>& Tasks)
+		{
+			for (const TSharedPtr<FDownloadTask>& Task : Tasks)
+			{
+				if (Task.IsValid() && !Task->TempPath.IsEmpty())
+				{
+					IFileManager::Get().Delete(*Task->TempPath);
+				}
+			}
+		};
+		DeleteTempFiles(PendingTasks);
+		DeleteTempFiles(ActiveTasks);
+		DeleteTempFiles(CompletedTasks);
+		UE_LOG(LogHotUpdate, Log, TEXT("Download cancelled, temp files deleted"));
+	}
+	else
+	{
+		UE_LOG(LogHotUpdate, Log, TEXT("Download cancelled, temp files preserved for resume"));
+	}
+
 	// 清理任务
 	PendingTasks.Empty();
 	ActiveTasks.Empty();
 	CompletedTasks.Empty();
-
-	UE_LOG(LogHotUpdate, Log, TEXT("Download cancelled"));
 }
 
 void UHotUpdateHttpDownloader::ProcessNextTask()
@@ -375,8 +396,15 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 			}
 			else
 			{
-				// 如果没有 World，直接重新加入队列
-				RetryTask(Task);
+				UE_LOG(LogHotUpdate, Error, TEXT("Cannot schedule retry: no World context. Marking as failed: %s"), *Task->Url);
+				Task->bIsCompleted = true;
+				Task->bSuccess = false;
+				Task->ErrorType = EHotUpdateError::DownloadFailed;
+				ActiveTasks.Remove(Task);
+				CompletedTasks.Add(Task);
+				OnFileComplete.Broadcast(Task->SavePath, false, Task->ErrorType);
+				UpdateProgress();
+				ProcessNextTask();
 			}
 
 			return;

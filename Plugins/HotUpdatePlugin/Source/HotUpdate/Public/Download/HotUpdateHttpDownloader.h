@@ -36,7 +36,7 @@ public:
 	virtual void ResumeDownload() override;
 
 	/// 取消下载
-	virtual void CancelDownload() override;
+	virtual void CancelDownload(bool bDeleteTempFiles = true) override;
 
 	/// 获取当前进度
 	virtual FHotUpdateProgress GetProgress() const override { return CurrentProgress; }

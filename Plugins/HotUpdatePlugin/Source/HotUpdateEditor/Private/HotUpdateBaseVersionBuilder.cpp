@@ -961,7 +961,7 @@ bool FHotUpdateBaseVersionBuilder::BuildManifestJson(
 	for (const FHotUpdateContainerInfo& Container : ContainerInfos)
 	{
 		TSharedPtr<FJsonObject> ChunkObject = MakeShareable(new FJsonObject);
-		ChunkObject->SetStringField(TEXT("ChunkName"), Container.ContainerName);
+		ChunkObject->SetStringField(TEXT("containerName"), Container.ContainerName);
 		ChunkObject->SetStringField(TEXT("containerType"),
 			Container.ContainerType == EHotUpdateContainerType::Base ? TEXT("base") : TEXT("patch"));
 
@@ -989,7 +989,7 @@ bool FHotUpdateBaseVersionBuilder::BuildManifestJson(
 
 		OutChunksArray.Add(MakeShareable(new FJsonValueObject(ChunkObject)));
 	}
-	RootObject->SetArrayField(TEXT("chunks"), OutChunksArray);
+	RootObject->SetArrayField(TEXT("containers"), OutChunksArray);
 
 	// 序列化 manifest
 	FString ManifestOutputString;
@@ -1042,7 +1042,7 @@ bool FHotUpdateBaseVersionBuilder::BuildFileManifestJson(
 {
 	const TSharedPtr<FJsonObject> FileManifestObj = MakeShareable(new FJsonObject);
 	FileManifestObj->SetObjectField(TEXT("version"), VersionObject);
-	FileManifestObj->SetArrayField(TEXT("chunks"), ChunksArray);
+	FileManifestObj->SetArrayField(TEXT("containers"), ChunksArray);
 
 	// 生成文件条目的通用 lambda（消除基础/热更资源的重复代码）
 	TArray<TSharedPtr<FJsonValue>> FilesArray;

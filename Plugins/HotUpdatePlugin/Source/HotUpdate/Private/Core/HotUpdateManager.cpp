@@ -326,7 +326,7 @@ void UHotUpdateManager::HandleVersionCheckResponse(TSharedPtr<IHttpRequest> Requ
 
 bool UHotUpdateManager::StartDownload()
 {
-	if (CurrentState != EHotUpdateState::Idle && CurrentState != EHotUpdateState::UpdateAvailable)
+	if (CurrentState != EHotUpdateState::UpdateAvailable && CurrentState != EHotUpdateState::Downloaded)
 	{
 		UE_LOG(LogHotUpdate, Warning, TEXT("Cannot start download in current state: %d"), (int32)CurrentState);
 		return false;
@@ -348,7 +348,14 @@ bool UHotUpdateManager::StartDownload()
 
 	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
 	FString SaveDir = Settings->GetLocalPakFullPath() / LatestVersion.ToString();
-	FString DownloadBaseUrl = BuildDownloadBaseUrl();
+
+	// 传入不含版本号的基础 URL（ResourceBaseUrl/Platform/），由下载器根据容器 version 字段拼接
+	FString ResourceBaseUrl = Settings->ResourceBaseUrl;
+	if (!ResourceBaseUrl.EndsWith(TEXT("/")))
+	{
+		ResourceBaseUrl += TEXT("/");
+	}
+	FString DownloadBaseUrl = ResourceBaseUrl + CachedServerManifest.VersionInfo.Platform + TEXT("/");
 
 	Downloader->AddContainerDownloadTasks(VersionCheckResult.UpdateContainers, DownloadBaseUrl, SaveDir);
 	Downloader->StartDownload();
@@ -390,7 +397,7 @@ void UHotUpdateManager::CancelDownload()
 
 bool UHotUpdateManager::ApplyUpdate()
 {
-	if (CurrentState != EHotUpdateState::Idle && CurrentState != EHotUpdateState::UpdateAvailable)
+	if (CurrentState != EHotUpdateState::Downloaded)
 	{
 		return false;
 	}
@@ -621,7 +628,7 @@ bool UHotUpdateManager::VerifyDownloadedFiles()
 		return true;
 	};
 
-	// 验证容器文件（IoStore 模式）
+	// 验证容器文件
 	for (const FHotUpdateContainerInfo& Container : VersionCheckResult.UpdateContainers)
 	{
 		if (!Container.UtocFile.Path.IsEmpty())
@@ -651,6 +658,20 @@ bool UHotUpdateManager::VerifyDownloadedFiles()
 				FailedCount++;
 			}
 		}
+
+		if (!Container.PakFile.Path.IsEmpty())
+		{
+			FString PakFilePath = SaveDir / Container.PakFile.Path;
+			if (VerifyFile(PakFilePath, Container.PakFile.Size, Container.PakFile.Hash))
+			{
+				VerifiedCount++;
+				UE_LOG(LogHotUpdate, Verbose, TEXT("Verified container pak: %s"), *PakFilePath);
+			}
+			else
+			{
+				FailedCount++;
+			}
+		}
 	}
 
 	if (VerifiedCount == 0 && FailedCount == 0)
@@ -661,18 +682,6 @@ bool UHotUpdateManager::VerifyDownloadedFiles()
 
 	UE_LOG(LogHotUpdate, Log, TEXT("Verification complete: %d verified, %d failed"), VerifiedCount, FailedCount);
 	return FailedCount == 0;
-}
-
-FString UHotUpdateManager::BuildDownloadBaseUrl() const
-{
-	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
-	FString Url = Settings->ResourceBaseUrl;
-	if (!Url.EndsWith(TEXT("/")))
-	{
-		Url += TEXT("/");
-	}
-	Url += LatestVersion.VersionString + TEXT("/") + CachedServerManifest.VersionInfo.Platform + TEXT("/");
-	return Url;
 }
 
 void UHotUpdateManager::HandleDownloadProgress(const FHotUpdateProgress& Progress)
@@ -686,7 +695,7 @@ void UHotUpdateManager::HandleDownloadComplete(bool bSuccess, const FString& Err
 	if (bSuccess)
 	{
 		UE_LOG(LogHotUpdate, Log, TEXT("Download completed successfully"));
-		SetState(EHotUpdateState::Idle);
+		SetState(EHotUpdateState::Downloaded);
 	}
 	else
 	{
@@ -742,40 +751,43 @@ void UHotUpdateManager::CalculateIncrementalDownload(
 				Reason = TEXT("utoc hash changed");
 				OutResult.ModifiedContainerCount++;
 			}
+			else if (!ServerContainer.PakFile.Hash.IsEmpty() &&
+					 LocalContainer->PakFile.Hash != ServerContainer.PakFile.Hash)
+			{
+				bNeedDownload = true;
+				Reason = TEXT("pak hash changed");
+				OutResult.ModifiedContainerCount++;
+			}
 		}
 
 		if (bNeedDownload)
 		{
 			OutResult.UpdateContainers.Add(ServerContainer);
-			OutResult.IncrementalDownloadSize += ServerContainer.UtocFile.Size + ServerContainer.UcasFile.Size;
+			int64 ContainerSize = ServerContainer.UtocFile.Size + ServerContainer.UcasFile.Size + ServerContainer.PakFile.Size;
+			OutResult.IncrementalDownloadSize += ContainerSize;
 
 			UE_LOG(LogHotUpdate, Log, TEXT("Need download container: %s (reason: %s, size: %.2f MB)"),
 				*ServerContainer.ContainerName, *Reason,
-				(ServerContainer.UtocFile.Size + ServerContainer.UcasFile.Size) / (1024.0 * 1024.0));
+				ContainerSize / (1024.0 * 1024.0));
 		}
 		else
 		{
 			OutResult.SkippedContainerCount++;
-			OutResult.SkippedTotalSize += ServerContainer.UtocFile.Size + ServerContainer.UcasFile.Size;
+			OutResult.SkippedTotalSize += ServerContainer.UtocFile.Size + ServerContainer.UcasFile.Size + ServerContainer.PakFile.Size;
 			UE_LOG(LogHotUpdate, Verbose, TEXT("Skipped container: %s (unchanged)"),
 				*ServerContainer.ContainerName);
 		}
 	}
 
 	// 检测已删除的 Container（存在于本地但不在服务端）
+	TSet<FString> ServerContainerNames;
+	for (const FHotUpdateContainerInfo& ServerContainer : ServerManifest.Containers)
+	{
+		ServerContainerNames.Add(ServerContainer.ContainerName);
+	}
 	for (const FHotUpdateContainerInfo& LocalContainer : LocalManifest.Containers)
 	{
-		bool bFound = false;
-		for (const FHotUpdateContainerInfo& ServerContainer : ServerManifest.Containers)
-		{
-			if (ServerContainer.ContainerName == LocalContainer.ContainerName)
-			{
-				bFound = true;
-				break;
-			}
-		}
-
-		if (!bFound)
+		if (!ServerContainerNames.Contains(LocalContainer.ContainerName))
 		{
 			OutResult.DeletedContainerCount++;
 			UE_LOG(LogHotUpdate, Verbose, TEXT("Deleted container: %s"),

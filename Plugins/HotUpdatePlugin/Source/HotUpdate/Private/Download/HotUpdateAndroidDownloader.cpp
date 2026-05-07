@@ -32,7 +32,7 @@ void UHotUpdateAndroidDownloader::ResumeDownload()
 	UE_LOG(LogHotUpdate, Warning, TEXT("AndroidDownloader::ResumeDownload - using empty implementation"));
 }
 
-void UHotUpdateAndroidDownloader::CancelDownload()
+void UHotUpdateAndroidDownloader::CancelDownload(bool bDeleteTempFiles)
 {
 	UE_LOG(LogHotUpdate, Warning, TEXT("AndroidDownloader::CancelDownload - using empty implementation"));
 }

@@ -21,23 +21,33 @@ void UHotUpdateDownloaderBase::AddDownloadTask(const FString& Url, const FString
 void UHotUpdateDownloaderBase::AddContainerDownloadTasks(const TArray<FHotUpdateContainerInfo>& Containers, const FString& BaseUrl, const FString& SaveDir)
 {
 	// 共享实现：遍历调用 AddDownloadTask，子类只需重写 AddDownloadTask 即可
+	// BaseUrl 格式: ResourceBaseUrl/Platform/（不含版本号）
+	// 容器通过 version 字段指定版本目录，支持链式热更
 	for (const FHotUpdateContainerInfo& Container : Containers)
 	{
-		// 下载 .utoc 文件
-		if (!Container.UtocFile.Path.IsEmpty() && Container.UtocFile.Size > 0)
+		// 构建容器级 URL: ResourceBaseUrl/Version/Platform/File
+		FString ContainerBaseUrl;
+		if (!Container.Version.IsEmpty() && !BaseUrl.IsEmpty())
 		{
-			FString FullUrl = BaseUrl.IsEmpty() ? Container.CustomDownloadUrl : BaseUrl / Container.UtocFile.Path;
-			FString SavePath = SaveDir / Container.UtocFile.Path;
-			AddDownloadTask(FullUrl, SavePath, Container.UtocFile.Size, Container.UtocFile.Hash);
+			ContainerBaseUrl = BaseUrl / Container.Version;
+		}
+		else
+		{
+			ContainerBaseUrl = BaseUrl;
 		}
 
-		// 下载 .ucas 文件
-		if (!Container.UcasFile.Path.IsEmpty() && Container.UcasFile.Size > 0)
+		auto DownloadFile = [&](const FHotUpdateFileInfo& File)
 		{
-			FString FullUrl = BaseUrl.IsEmpty() ? Container.CustomDownloadUrl : BaseUrl / Container.UcasFile.Path;
-			FString SavePath = SaveDir / Container.UcasFile.Path;
-			AddDownloadTask(FullUrl, SavePath, Container.UcasFile.Size, Container.UcasFile.Hash);
-		}
+			if (File.Path.IsEmpty() || File.Size <= 0) return;
+
+			FString FullUrl = ContainerBaseUrl.IsEmpty() ? Container.CustomDownloadUrl : ContainerBaseUrl / File.Path;
+			FString SavePath = SaveDir / File.Path;
+			AddDownloadTask(FullUrl, SavePath, File.Size, File.Hash);
+		};
+
+		DownloadFile(Container.UtocFile);
+		DownloadFile(Container.UcasFile);
+		DownloadFile(Container.PakFile);
 	}
 	UE_LOG(LogHotUpdate, Log, TEXT("Added %d container download tasks"), Containers.Num());
 }
@@ -57,7 +67,7 @@ void UHotUpdateDownloaderBase::ResumeDownload()
 	UE_LOG(LogHotUpdate, Warning, TEXT("UHotUpdateDownloaderBase::ResumeDownload called on base class. Override in platform-specific subclass."));
 }
 
-void UHotUpdateDownloaderBase::CancelDownload()
+void UHotUpdateDownloaderBase::CancelDownload(bool bDeleteTempFiles)
 {
 	UE_LOG(LogHotUpdate, Warning, TEXT("UHotUpdateDownloaderBase::CancelDownload called on base class. Override in platform-specific subclass."));
 }

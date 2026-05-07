@@ -22,7 +22,7 @@ public:
 	virtual void StartDownload() override;
 	virtual void PauseDownload() override;
 	virtual void ResumeDownload() override;
-	virtual void CancelDownload() override;
+	virtual void CancelDownload(bool bDeleteTempFiles = true) override;
 	virtual FHotUpdateProgress GetProgress() const override;
 	virtual bool IsDownloading() const override;
 	virtual bool IsPaused() const override;

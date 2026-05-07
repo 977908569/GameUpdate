@@ -49,10 +49,9 @@ bool UHotUpdateManifestParser::ParseFromJson(const FString& JsonString, FHotUpda
 	// 解析基础版本号
 	JsonObject->TryGetStringField(TEXT("baseVersion"), OutManifest.BaseVersion);
 
-	// 解析 containers/chunks 数组（兼容两种字段名）
+	// 解析 containers 数组
 	const TArray<TSharedPtr<FJsonValue>>* ContainersArray;
-	if (JsonObject->TryGetArrayField(TEXT("containers"), ContainersArray) ||
-		JsonObject->TryGetArrayField(TEXT("chunks"), ContainersArray))
+	if (JsonObject->TryGetArrayField(TEXT("containers"), ContainersArray))
 	{
 		OutManifest.Containers.Empty();
 		for (const TSharedPtr<FJsonValue>& ContainerValue : *ContainersArray)
@@ -62,7 +61,6 @@ bool UHotUpdateManifestParser::ParseFromJson(const FString& JsonString, FHotUpda
 
 			FHotUpdateContainerInfo Container;
 			ContainerObject->TryGetStringField(TEXT("containerName"), Container.ContainerName);
-			ContainerObject->TryGetStringField(TEXT("ChunkName"), Container.ContainerName);  // 兼容 ChunkName
 
 			// IoStore 格式字段
 			ContainerObject->TryGetStringField(TEXT("utocPath"), Container.UtocFile.Path);

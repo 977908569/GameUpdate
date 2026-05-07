@@ -16,6 +16,7 @@ enum class EHotUpdateState : uint8
 	UpdateAvailable UMETA(DisplayName = "Update Available"),
 	Downloading     UMETA(DisplayName = "Downloading"),
 	Paused          UMETA(DisplayName = "Paused"),
+	Downloaded      UMETA(DisplayName = "Downloaded"),
 	Installing      UMETA(DisplayName = "Installing"),
 	Success         UMETA(DisplayName = "Success"),
 	Failed          UMETA(DisplayName = "Failed")

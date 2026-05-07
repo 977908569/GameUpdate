@@ -47,8 +47,9 @@ public:
 	virtual void ResumeDownload();
 
 	/// 取消下载
+	/// @param bDeleteTempFiles 是否删除临时文件（默认 true）
 	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Download")
-	virtual void CancelDownload();
+	virtual void CancelDownload(bool bDeleteTempFiles = true);
 
 	/// 获取当前进度
 	UFUNCTION(BlueprintPure, Category = "HotUpdate|Download")

@@ -307,22 +307,32 @@ bool FHotUpdatePatchPackageBuilder::GenerateManifest(
 	{
 		TSharedPtr<FJsonObject> BaseContainerObj = MakeShareable(new FJsonObject);
 		BaseContainerObj->SetStringField(TEXT("containerName"), BaseContainer.ContainerName);
-		BaseContainerObj->SetStringField(TEXT("utocPath"), BaseContainer.UtocFile.Path);
-		BaseContainerObj->SetNumberField(TEXT("utocSize"), BaseContainer.UtocFile.Size);
-		BaseContainerObj->SetStringField(TEXT("utocHash"), BaseContainer.UtocFile.Hash);
 
-		if (!BaseContainer.UcasFile.Path.IsEmpty())
+		if (!BaseContainer.UtocFile.Path.IsEmpty())
 		{
-			BaseContainerObj->SetStringField(TEXT("ucasPath"), BaseContainer.UcasFile.Path);
-			BaseContainerObj->SetNumberField(TEXT("ucasSize"), BaseContainer.UcasFile.Size);
-			BaseContainerObj->SetStringField(TEXT("ucasHash"), BaseContainer.UcasFile.Hash);
-			BaseContainerObj->SetStringField(TEXT("containerType"), TEXT("patch"));
+			// IoStore 格式
+			BaseContainerObj->SetStringField(TEXT("utocPath"), BaseContainer.UtocFile.Path);
+			BaseContainerObj->SetNumberField(TEXT("utocSize"), BaseContainer.UtocFile.Size);
+			BaseContainerObj->SetStringField(TEXT("utocHash"), BaseContainer.UtocFile.Hash);
+
+			if (!BaseContainer.UcasFile.Path.IsEmpty())
+			{
+				BaseContainerObj->SetStringField(TEXT("ucasPath"), BaseContainer.UcasFile.Path);
+				BaseContainerObj->SetNumberField(TEXT("ucasSize"), BaseContainer.UcasFile.Size);
+				BaseContainerObj->SetStringField(TEXT("ucasHash"), BaseContainer.UcasFile.Hash);
+				BaseContainerObj->SetStringField(TEXT("containerType"), TEXT("patch"));
+			}
+			else
+			{
+				BaseContainerObj->SetStringField(TEXT("containerType"), TEXT("patch_embedded"));
+			}
 		}
-		else
+		else if (!BaseContainer.PakFile.Path.IsEmpty())
 		{
-			BaseContainerObj->SetStringField(TEXT("ucasPath"), TEXT(""));
-			BaseContainerObj->SetNumberField(TEXT("ucasSize"), 0);
-			BaseContainerObj->SetStringField(TEXT("ucasHash"), TEXT(""));
+			// 传统 Pak 格式
+			BaseContainerObj->SetStringField(TEXT("pakPath"), BaseContainer.PakFile.Path);
+			BaseContainerObj->SetNumberField(TEXT("pakSize"), BaseContainer.PakFile.Size);
+			BaseContainerObj->SetStringField(TEXT("pakHash"), BaseContainer.PakFile.Hash);
 			BaseContainerObj->SetStringField(TEXT("containerType"), TEXT("patch_pak"));
 		}
 
@@ -339,40 +349,38 @@ bool FHotUpdatePatchPackageBuilder::GenerateManifest(
 			FString ContainerName = FString::Printf(TEXT("Patch_%s_P"), *CurrentConfig.PatchVersion);
 		PatchContainerObj->SetStringField(TEXT("containerName"), ContainerName);
 
-		// .utoc 文件信息
-		FString UtocFileName = FPaths::GetCleanFilename(PatchUtocPath);
-		PatchContainerObj->SetStringField(TEXT("utocPath"), TEXT("Paks/") + UtocFileName);
-		PatchContainerObj->SetNumberField(TEXT("utocSize"), IFileManager::Get().FileSize(*PatchUtocPath));
-		PatchContainerObj->SetStringField(TEXT("utocHash"), UHotUpdateFileUtils::CalculateFileHash(PatchUtocPath));
-
-		// .ucas 文件信息（可选）
-		if (!PatchUcasPath.IsEmpty() && FPaths::FileExists(*PatchUcasPath))
-		{
-			FString UcasFileName = FPaths::GetCleanFilename(PatchUcasPath);
-			PatchContainerObj->SetStringField(TEXT("ucasPath"), TEXT("Paks/") + UcasFileName);
-			PatchContainerObj->SetNumberField(TEXT("ucasSize"), IFileManager::Get().FileSize(*PatchUcasPath));
-			PatchContainerObj->SetStringField(TEXT("ucasHash"), UHotUpdateFileUtils::CalculateFileHash(PatchUcasPath));
-			PatchContainerObj->SetStringField(TEXT("containerType"), TEXT("patch"));
-		}
-		else if (PatchUtocPath.EndsWith(TEXT(".pak")))
+		if (PatchUtocPath.EndsWith(TEXT(".pak")))
 		{
 			// 传统 .pak 格式
-			PatchContainerObj->SetStringField(TEXT("ucasPath"), TEXT(""));
-			PatchContainerObj->SetNumberField(TEXT("ucasSize"), 0);
-			PatchContainerObj->SetStringField(TEXT("ucasHash"), TEXT(""));
+			FString PakFileName = FPaths::GetCleanFilename(PatchUtocPath);
+			PatchContainerObj->SetStringField(TEXT("pakPath"), TEXT("Paks/") + PakFileName);
+			PatchContainerObj->SetNumberField(TEXT("pakSize"), IFileManager::Get().FileSize(*PatchUtocPath));
+			PatchContainerObj->SetStringField(TEXT("pakHash"), UHotUpdateFileUtils::CalculateFileHash(PatchUtocPath));
 			PatchContainerObj->SetStringField(TEXT("containerType"), TEXT("patch_pak"));
 		}
 		else
 		{
-			// 单文件格式，数据嵌入在 utoc 中
-			PatchContainerObj->SetStringField(TEXT("ucasPath"), TEXT(""));
-			PatchContainerObj->SetNumberField(TEXT("ucasSize"), 0);
-			PatchContainerObj->SetStringField(TEXT("ucasHash"), TEXT(""));
-			PatchContainerObj->SetStringField(TEXT("containerType"), TEXT("patch_embedded"));
+			// IoStore 格式
+			FString UtocFileName = FPaths::GetCleanFilename(PatchUtocPath);
+			PatchContainerObj->SetStringField(TEXT("utocPath"), TEXT("Paks/") + UtocFileName);
+			PatchContainerObj->SetNumberField(TEXT("utocSize"), IFileManager::Get().FileSize(*PatchUtocPath));
+			PatchContainerObj->SetStringField(TEXT("utocHash"), UHotUpdateFileUtils::CalculateFileHash(PatchUtocPath));
+
+			if (!PatchUcasPath.IsEmpty() && FPaths::FileExists(*PatchUcasPath))
+			{
+				FString UcasFileName = FPaths::GetCleanFilename(PatchUcasPath);
+				PatchContainerObj->SetStringField(TEXT("ucasPath"), TEXT("Paks/") + UcasFileName);
+				PatchContainerObj->SetNumberField(TEXT("ucasSize"), IFileManager::Get().FileSize(*PatchUcasPath));
+				PatchContainerObj->SetStringField(TEXT("ucasHash"), UHotUpdateFileUtils::CalculateFileHash(PatchUcasPath));
+				PatchContainerObj->SetStringField(TEXT("containerType"), TEXT("patch"));
+			}
+			else
+			{
+				PatchContainerObj->SetStringField(TEXT("containerType"), TEXT("patch_embedded"));
+			}
 		}
 
-			PatchContainerObj->SetStringField(TEXT("version"), CurrentConfig.PatchVersion);
-
+		PatchContainerObj->SetStringField(TEXT("version"), CurrentConfig.PatchVersion);
 		ContainersArray.Add(MakeShareable(new FJsonValueObject(PatchContainerObj)));
 	}
 
@@ -402,9 +410,9 @@ bool FHotUpdatePatchPackageBuilder::GenerateManifest(
 	FileManifestObj->SetObjectField(TEXT("diffSummary"), DiffSummary);
 	FileManifestObj->SetArrayField(TEXT("containers"), ContainersArray);
 
-	// 收集所有资源路径（从 DiffReport 推导）
+	// 收集所有资源路径（从 DiffReport 推导），filemanifest 需要全量文件作为链式热更的 diff 基线
 	TSet<FString> AllAssetPaths;
-	TMap<FString, const FHotUpdateAssetDiff*> AssetDiffMap; // 快速查找
+	TMap<FString, const FHotUpdateAssetDiff*> AssetDiffMap;
 
 	for (const FHotUpdateAssetDiff& Diff : DiffReport.AddedAssets)
 	{
@@ -422,38 +430,31 @@ bool FHotUpdatePatchPackageBuilder::GenerateManifest(
 		AssetDiffMap.Add(Diff.AssetPath, &Diff);
 	}
 
-	// 文件列表（仅用于编辑器端差异计算）
 	TArray<TSharedPtr<FJsonValue>> FilesArray;
 
 	for (const FString& AssetPath : AllAssetPaths)
 	{
 		TSharedPtr<FJsonObject> FileObj = MakeShareable(new FJsonObject);
-
-		// filePath 使用虚拟路径（/Game/...），确保跨机器一致
 		FileObj->SetStringField(TEXT("filePath"), AssetPath);
 
-		// 从 AssetDiffMap 获取差异信息
 		const FHotUpdateAssetDiff* Diff = AssetDiffMap.FindRef(AssetPath);
 		if (Diff)
 		{
 			if (Diff->ChangeType == EHotUpdateFileChangeType::Added || Diff->ChangeType == EHotUpdateFileChangeType::Modified)
 			{
-				// 变更资源：使用 NewHash/NewSize
 				FileObj->SetStringField(TEXT("fileHash"), Diff->NewHash);
 				FileObj->SetNumberField(TEXT("fileSize"), Diff->NewSize);
 				FileObj->SetStringField(TEXT("source"), TEXT("patch"));
 			}
 			else if (Diff->ChangeType == EHotUpdateFileChangeType::Unchanged)
 			{
-					// 未变更资源：使用 DiffReport 中的 Hash/Size
-					FileObj->SetStringField(TEXT("fileHash"), Diff->OldHash);
-					FileObj->SetNumberField(TEXT("fileSize"), Diff->OldSize);
-					FileObj->SetStringField(TEXT("source"), TEXT("base"));
+				FileObj->SetStringField(TEXT("fileHash"), Diff->OldHash);
+				FileObj->SetNumberField(TEXT("fileSize"), Diff->OldSize);
+				FileObj->SetStringField(TEXT("source"), TEXT("base"));
 			}
 		}
-		
-		FileObj->SetBoolField(TEXT("isCompressed"), CurrentConfig.IoStoreConfig.CompressionFormat != TEXT("None"));
 
+		FileObj->SetBoolField(TEXT("isCompressed"), CurrentConfig.IoStoreConfig.CompressionFormat != TEXT("None"));
 		FilesArray.Add(MakeShareable(new FJsonValueObject(FileObj)));
 	}
 
@@ -935,11 +936,7 @@ bool FHotUpdatePatchPackageBuilder::BuildAndRegisterManifest(FPatchBuildContext&
 		if (FJsonSerializer::Deserialize(BaseReader, BaseManifestObj) && BaseManifestObj.IsValid())
 		{
 			const TArray<TSharedPtr<FJsonValue>>* ContainersArray = nullptr;
-			bool bFound = BaseManifestObj->TryGetArrayField(TEXT("chunks"), ContainersArray);
-			if (!bFound)
-			{
-				bFound = BaseManifestObj->TryGetArrayField(TEXT("containers"), ContainersArray);
-			}
+			bool bFound = BaseManifestObj->TryGetArrayField(TEXT("containers"), ContainersArray);
 
 			if (bFound && ContainersArray)
 			{
@@ -955,29 +952,20 @@ bool FHotUpdatePatchPackageBuilder::BuildAndRegisterManifest(FPatchBuildContext&
 					}
 
 					FHotUpdateContainerInfo Info;
-					if (ContainerObj->HasField(TEXT("ChunkName")))
-					{
-						Info.ContainerName = ContainerObj->GetStringField(TEXT("ChunkName"));
-					}
-					else
-					{
-						Info.ContainerName = ContainerObj->GetStringField(TEXT("containerName"));
-					}
+					ContainerObj->TryGetStringField(TEXT("containerName"), Info.ContainerName);
 
 					ContainerObj->TryGetStringField(TEXT("utocPath"), Info.UtocFile.Path);
 					ContainerObj->TryGetNumberField(TEXT("utocSize"), Info.UtocFile.Size);
 					ContainerObj->TryGetStringField(TEXT("utocHash"), Info.UtocFile.Hash);
 
-					if (Info.UtocFile.Path.IsEmpty() && ContainerObj->HasField(TEXT("pakPath")))
-					{
-						Info.UtocFile.Path = ContainerObj->GetStringField(TEXT("pakPath"));
-						ContainerObj->TryGetNumberField(TEXT("pakSize"), Info.UtocFile.Size);
-						ContainerObj->TryGetStringField(TEXT("pakHash"), Info.UtocFile.Hash);
-					}
+					ContainerObj->TryGetStringField(TEXT("pakPath"), Info.PakFile.Path);
+					ContainerObj->TryGetNumberField(TEXT("pakSize"), Info.PakFile.Size);
+					ContainerObj->TryGetStringField(TEXT("pakHash"), Info.PakFile.Hash);
 
-					if (ContainerObj->HasField(TEXT("ucasPath")))
+					FString UcasPath;
+					if (ContainerObj->TryGetStringField(TEXT("ucasPath"), UcasPath) && !UcasPath.IsEmpty())
 					{
-						Info.UcasFile.Path = ContainerObj->GetStringField(TEXT("ucasPath"));
+						Info.UcasFile.Path = UcasPath;
 						Info.UcasFile.Size = (int64)ContainerObj->GetNumberField(TEXT("ucasSize"));
 						Info.UcasFile.Hash = ContainerObj->GetStringField(TEXT("ucasHash"));
 					}

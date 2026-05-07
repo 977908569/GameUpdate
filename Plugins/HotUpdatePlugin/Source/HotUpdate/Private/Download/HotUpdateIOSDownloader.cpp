@@ -32,7 +32,7 @@ void UHotUpdateIOSDownloader::ResumeDownload()
 	UE_LOG(LogHotUpdate, Warning, TEXT("IOSDownloader::ResumeDownload - using empty implementation"));
 }
 
-void UHotUpdateIOSDownloader::CancelDownload()
+void UHotUpdateIOSDownloader::CancelDownload(bool bDeleteTempFiles)
 {
 	UE_LOG(LogHotUpdate, Warning, TEXT("IOSDownloader::CancelDownload - using empty implementation"));
 }
