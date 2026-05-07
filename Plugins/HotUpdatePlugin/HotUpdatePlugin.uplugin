@@ -12,6 +12,12 @@
 	"SupportURL": "",
 	"CanContainContent": true,
 	"IsBetaVersion": false,
+	"Plugins": [
+		{
+			"Name": "ControlFlows",
+			"Enabled": true
+		}
+	],
 	"IsExperimentalVersion": false,
 	"Installed": false,
 	"Modules": [

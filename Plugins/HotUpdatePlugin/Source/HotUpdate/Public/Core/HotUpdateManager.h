@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "ControlFlow.h"
 #include "Core/HotUpdateTypes.h"
 #include "HotUpdateManifest.h"
 #include "HotUpdateManager.generated.h"
@@ -115,11 +116,6 @@ protected:
 	/// 设置状态
 	void SetState(EHotUpdateState NewState);
 
-	/// 处理版本检查响应
-	void HandleVersionCheckResponse(TSharedPtr<class IHttpRequest> Request, TSharedPtr<class IHttpResponse> Response, bool bSuccess);
-
-	void HandleLatestVersionResponse(TSharedPtr<class IHttpRequest> Request, TSharedPtr<class IHttpResponse> Response, bool bSuccess);
-
 	/// 验证下载文件
 	bool VerifyDownloadedFiles();
 
@@ -141,13 +137,31 @@ private:
 		const FHotUpdateManifest& LocalManifest,
 		FHotUpdateVersionCheckResult& OutResult);
 
+	// == Flow 控制 ==
+
+	void StartFlow();
+	void BuildFlow();
+
+	// == Flow 步骤回调 ==
+
+	void StepFetchLatest(FControlFlowNodeRef FlowHandle);
+	void StepFetchManifest(FControlFlowNodeRef FlowHandle);
+	void StepProcessVersionCheck(FControlFlowNodeRef FlowHandle);
+	void StepDownload(FControlFlowNodeRef FlowHandle);
+	void StepApply(FControlFlowNodeRef FlowHandle);
+	void OnFlowComplete();
+	void OnFlowCancel();
+
+	// == HTTP 回调 ==
+
+	void OnLatestResponse(TSharedPtr<class IHttpRequest> Request, TSharedPtr<class IHttpResponse> Response, bool bSuccess);
+	void OnManifestResponse(TSharedPtr<class IHttpRequest> Request, TSharedPtr<class IHttpResponse> Response, bool bSuccess);
+
+	// == 成员 ==
+
 	/// 当前状态
 	UPROPERTY(Transient)
 	EHotUpdateState CurrentState;
-
-	/// 是否有可用更新
-	UPROPERTY(Transient)
-	bool bHasUpdateAvailable;
 
 	/// 当前版本
 	UPROPERTY(Transient)
@@ -177,12 +191,19 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UHotUpdateVersionStorage> VersionStorage;
 
-	/// HTTP 请求句柄
-	TSharedPtr<class IHttpRequest> VersionCheckRequest;
-
 	/// 自动检查更新的定时器句柄
 	FTimerHandle AutoCheckTimerHandle;
 
 	/// 缓存的服务器 Manifest（用于成功更新后保存到本地）
 	FHotUpdateManifest CachedServerManifest;
+
+	// == Flow 数据 ==
+
+	TSharedPtr<FControlFlow> Flow;
+	TSharedPtr<FControlFlowNode> LatestFlowHandle;
+	TSharedPtr<FControlFlowNode> ManifestFlowHandle;
+	TSharedPtr<FControlFlowNode> DownloadFlowHandle;
+	FString LatestJsonResponse;
+	FString ManifestJsonResponse;
+	bool bVersionCheckHasUpdate = false;
 };

@@ -21,15 +21,16 @@ void UHotUpdateDownloaderBase::AddDownloadTask(const FString& Url, const FString
 void UHotUpdateDownloaderBase::AddContainerDownloadTasks(const TArray<FHotUpdateContainerInfo>& Containers, const FString& BaseUrl, const FString& SaveDir)
 {
 	// 共享实现：遍历调用 AddDownloadTask，子类只需重写 AddDownloadTask 即可
-	// BaseUrl 格式: ResourceBaseUrl/Platform/（不含版本号）
+	// BaseUrl 格式: ResourceBaseUrl/（不含版本号和平台）
 	// 容器通过 version 字段指定版本目录，支持链式热更
+	const FString PlatformName = FPlatformProperties::PlatformName();
 	for (const FHotUpdateContainerInfo& Container : Containers)
 	{
 		// 构建容器级 URL: ResourceBaseUrl/Version/Platform/File
 		FString ContainerBaseUrl;
 		if (!Container.Version.IsEmpty() && !BaseUrl.IsEmpty())
 		{
-			ContainerBaseUrl = BaseUrl / Container.Version;
+			ContainerBaseUrl = BaseUrl / Container.Version / PlatformName;
 		}
 		else
 		{

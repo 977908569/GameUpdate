@@ -18,6 +18,7 @@ public class HotUpdate : ModuleRules
 			"Json",
 			"JsonUtilities",
 			"DeveloperSettings",
+			"ControlFlows"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[]
