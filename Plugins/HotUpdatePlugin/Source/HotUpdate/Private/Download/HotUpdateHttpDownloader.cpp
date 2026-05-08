@@ -28,6 +28,7 @@ struct UHotUpdateHttpDownloader::FDownloadTask
 	FString ExpectedHash;    // 期望的文件 Hash（SHA1），用于下载后校验
 	bool bIsCompleted;
 	bool bSuccess;
+	bool bServerIgnoredRange; // 服务器忽略 Range 请求，返回了完整内容
 	int32 RetryCount;        // 当前重试次数
 	EHotUpdateError ErrorType; // 错误类型
 };
@@ -78,6 +79,7 @@ void UHotUpdateHttpDownloader::AddDownloadTask(const FString& Url, const FString
 	Task->BytesWrittenToDisk = 0;
 	Task->bIsCompleted = false;
 	Task->bSuccess = false;
+	Task->bServerIgnoredRange = false;
 	Task->RetryCount = 0;
 
 	// 检查是否存在未完成的临时文件（断点续传）
@@ -300,6 +302,13 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 	bool bIsPartialContent = (ResponseCode == 206);
 	bool bIsFullContent = (ResponseCode >= 200 && ResponseCode < 300 && ResponseCode != 206);
 
+	// 检测服务器是否忽略了 Range 请求
+	if (bIsFullContent && Task->ResumeOffset > 0)
+	{
+		UE_LOG(LogHotUpdate, Warning, TEXT("Server ignored Range header, returned full content: %s"), *Task->Url);
+		Task->bServerIgnoredRange = true;
+	}
+
 	if (!bIsPartialContent && !bIsFullContent)
 	{
 		UE_LOG(LogHotUpdate, Warning, TEXT("HTTP request returned %d for: %s"), ResponseCode, *Task->Url);
@@ -425,7 +434,20 @@ bool UHotUpdateHttpDownloader::VerifyAndFinalizeTask(TSharedPtr<FDownloadTask> T
 		return false;
 	}
 
-	Task->DownloadedSize = Task->ResumeOffset + DataSize;
+	// 根据服务器是否忽略 Range 请求来计算最终已下载大小
+	if (Task->bServerIgnoredRange)
+	{
+		Task->DownloadedSize = DataSize;
+	}
+	else
+	{
+		Task->DownloadedSize = Task->ResumeOffset + DataSize;
+	}
+	// 防御性 clamp
+	if (Task->ExpectedSize > 0)
+	{
+		Task->DownloadedSize = FMath::Min(Task->DownloadedSize, Task->ExpectedSize);
+	}
 	Task->bIsCompleted = true;
 	Task->bSuccess = true;
 	return true;
@@ -478,11 +500,25 @@ void UHotUpdateHttpDownloader::HandleRequestProgress(FHttpRequestPtr Request, ui
 		return;
 	}
 
-	Task->DownloadedSize = Task->ResumeOffset + static_cast<int64>(BytesReceived);
+	// 根据服务器是否忽略 Range 请求来计算实际已下载大小
+	if (Task->bServerIgnoredRange)
+	{
+		// 服务器返回了完整内容，BytesReceived 已包含全部数据
+		Task->DownloadedSize = static_cast<int64>(BytesReceived);
+	}
+	else
+	{
+		Task->DownloadedSize = Task->ResumeOffset + static_cast<int64>(BytesReceived);
+	}
+	// 防御性 clamp，防止进度超过预期大小
+	if (Task->ExpectedSize > 0)
+	{
+		Task->DownloadedSize = FMath::Min(Task->DownloadedSize, Task->ExpectedSize);
+	}
 
 	// 增量写入磁盘：每累积 1MB 数据写入一次，确保暂停时数据已持久化
 	constexpr int64 WriteChunkSize = 1024 * 1024; // 1MB
-	const int64 AbsoluteReceived = Task->ResumeOffset + static_cast<int64>(BytesReceived);
+	const int64 AbsoluteReceived = Task->DownloadedSize;
 	const int64 PendingBytes = AbsoluteReceived - Task->BytesWrittenToDisk;
 
 	if (PendingBytes >= WriteChunkSize)
