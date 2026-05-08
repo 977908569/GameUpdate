@@ -501,6 +501,29 @@ void FHotUpdateBaseVersionBuilder::WriteMinimalPackageConfig()
 			CachedWhitelistAssetPaths.Num(), CachedChunkMapping.Num());
 	}
 
+	// 非资产文件 Chunk 映射（ChunkId -> 文件列表）
+	if (CachedNonAssetChunkMapping.Num() > 0)
+	{
+		int32 TotalFiles = 0;
+		const TSharedPtr<FJsonObject> NonAssetObj = MakeShareable(new FJsonObject);
+		for (const auto& Pair : CachedNonAssetChunkMapping)
+		{
+			const FString ChunkIdKey = FString::FromInt(Pair.Key);
+			TArray<TSharedPtr<FJsonValue>> FileArray;
+			for (const FNonAssetChunkInfo& Info : Pair.Value)
+			{
+				TSharedPtr<FJsonObject> FileObj = MakeShareable(new FJsonObject);
+				FileObj->SetStringField(TEXT("SourcePath"), Info.SourcePath);
+				FileObj->SetStringField(TEXT("PakInternalPath"), Info.PakInternalPath);
+				FileArray.Add(MakeShareable(new FJsonValueObject(FileObj)));
+			}
+			NonAssetObj->SetArrayField(ChunkIdKey, FileArray);
+			TotalFiles += Pair.Value.Num();
+		}
+		JsonObj->SetObjectField(TEXT("NonAssetChunkMapping"), NonAssetObj);
+		UE_LOG(LogHotUpdateEditor, Log, TEXT("NonAssetChunkMapping: %d 个 Chunk, %d 个非资产文件"), CachedNonAssetChunkMapping.Num(), TotalFiles);
+	}
+
 	FString JsonStr;
 	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonStr);
 	FJsonSerializer::Serialize(JsonObj.ToSharedRef(), Writer);
@@ -529,6 +552,81 @@ void FHotUpdateBaseVersionBuilder::PreComputeChunkMapping()
 	TArray<FString> PatchAssetPaths = CurrentConfig.PreCollectedPatchAssetPaths;
 
 	UE_LOG(LogHotUpdateEditor, Log, TEXT("预计算 Chunk 分配，热更资源数: %d"), PatchAssetPaths.Num());
+
+	// 非资产文件 Chunk 分配（引擎不处理非资产文件的 Chunk 分配，在此补充）
+	// 必须在策略判断之前执行，确保 NonAssetChunkMapping 写入 JSON
+	// 白名单目录内的非资产文件保留在 pakchunk0 中，不抽到独立 pak
+	CachedNonAssetChunkMapping.Empty();
+	if (CurrentConfig.PreCollectedNonAssetFiles.Num() > 0)
+	{
+		// 非资产文件使用固定高 ChunkId，避免与引擎分配的 chunk 冲突
+		const int32 NonAssetChunkId = 999;
+		const FString ProjectContentDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectContentDir());
+		const FString ProjectName = FApp::GetProjectName();
+
+		// 预计算白名单目录的磁盘路径集合
+		TArray<FString> WhitelistContentDirs;
+		for (const FDirectoryPath& Dir : CurrentConfig.MinimalPackageConfig.WhitelistDirectories)
+		{
+			if (!Dir.Path.IsEmpty())
+			{
+				FString DirPath = FPackageName::LongPackageNameToFilename(Dir.Path);
+				if (!DirPath.EndsWith(TEXT("/"))) DirPath += TEXT("/");
+				WhitelistContentDirs.Add(FPaths::ConvertRelativePathToFull(DirPath));
+			}
+		}
+
+		for (const FString& DiskPath : CurrentConfig.PreCollectedNonAssetFiles)
+		{
+			FString NormalizedPath = DiskPath;
+			FPaths::NormalizeFilename(NormalizedPath);
+			NormalizedPath = FPaths::ConvertRelativePathToFull(NormalizedPath);
+
+			// 白名单目录内的非资产文件保留在 pakchunk0
+			bool bInWhitelist = false;
+			for (const FString& WhitelistDir : WhitelistContentDirs)
+			{
+				if (NormalizedPath.StartsWith(WhitelistDir, ESearchCase::IgnoreCase))
+				{
+					bInWhitelist = true;
+					break;
+				}
+			}
+			if (bInWhitelist)
+			{
+				UE_LOG(LogHotUpdateEditor, Log, TEXT("非资产文件在白名单目录内，保留在 pakchunk0: %s"), *NormalizedPath);
+				continue;
+			}
+
+			// 转虚拟路径：/Game/Setting/txt_pak.txt
+			FString VirtualPath = FHotUpdatePackageHelper::FilePathToContentMountPath(NormalizedPath);
+			if (VirtualPath.IsEmpty())
+			{
+				UE_LOG(LogHotUpdateEditor, Warning, TEXT("非资产文件无法转虚拟路径: %s"), *NormalizedPath);
+				continue;
+			}
+
+			// 直接构造 pak 内部路径：../../../{ProjectName}/Content/{RelativePath}
+			FString RelativeToContent = NormalizedPath;
+			if (RelativeToContent.StartsWith(ProjectContentDir))
+			{
+				RelativeToContent = RelativeToContent.RightChop(ProjectContentDir.Len());
+			}
+			FString PakInternalPath = FString::Printf(TEXT("../../../%s/Content/%s"), *ProjectName, *RelativeToContent);
+			FPaths::NormalizeFilename(PakInternalPath);
+
+			FNonAssetChunkInfo ChunkInfo;
+			ChunkInfo.ChunkId = NonAssetChunkId;
+			ChunkInfo.PakInternalPath = PakInternalPath;
+			ChunkInfo.SourcePath = NormalizedPath;
+			CachedNonAssetChunkMapping.FindOrAdd(NonAssetChunkId).Add(ChunkInfo);
+
+			UE_LOG(LogHotUpdateEditor, Log, TEXT("非资产文件 Chunk 分配: %s -> Chunk %d (PakPath: %s)"),
+				*VirtualPath, NonAssetChunkId, *PakInternalPath);
+		}
+
+		UE_LOG(LogHotUpdateEditor, Log, TEXT("非资产文件 Chunk 分配完成: %d 个文件"), CachedNonAssetChunkMapping.Num());
+	}
 
 	// 策略为 None：所有热更资源分配到同一个 Chunk（ChunkIdStart，默认 1）
 	if (CurrentConfig.MinimalPackageConfig.PatchChunkStrategy == EHotUpdateChunkStrategy::None)
@@ -596,6 +694,7 @@ void FHotUpdateBaseVersionBuilder::PreComputeChunkMapping()
 		CachedChunkMapping.Empty();
 		CachedChunkDefinitions.Empty();
 	}
+
 }
 
 bool FHotUpdateBaseVersionBuilder::ExecuteUATPackage(const FString& UATCommand, FString& OutError) const
@@ -782,6 +881,18 @@ bool FHotUpdateBaseVersionBuilder::SaveResourceHashesInGameThread()
 		BaseAssets = ResolveAssetInfo(CachedWhitelistAssetPaths, CookedPlatformDir);
 		PatchAssets = ResolveAssetInfo(CurrentConfig.PreCollectedPatchAssetPaths, CookedPlatformDir);
 
+		// 预计算白名单目录的磁盘路径集合（用于区分 base/patch 非资产文件）
+		TArray<FString> WhitelistContentDirs;
+		for (const FDirectoryPath& Dir : CurrentConfig.MinimalPackageConfig.WhitelistDirectories)
+		{
+			if (!Dir.Path.IsEmpty())
+			{
+				FString DirPath = FPackageName::LongPackageNameToFilename(Dir.Path);
+				if (!DirPath.EndsWith(TEXT("/"))) DirPath += TEXT("/");
+				WhitelistContentDirs.Add(FPaths::ConvertRelativePathToFull(DirPath));
+			}
+		}
+
 		// 处理预收集的 Staged 文件
 		for (const FString& StagedFile : CurrentConfig.PreCollectedNonAssetFiles)
 		{
@@ -795,7 +906,23 @@ bool FHotUpdateBaseVersionBuilder::SaveResourceHashesInGameThread()
 				{
 					VirtualPath = FPaths::ConvertRelativePathToFull(StagedFile);
 				}
-				BaseAssets.Add(FHotUpdateResolvedAssetInfo(VirtualPath, FileHash, FileSize));
+
+				// 白名单目录内的非资产文件 -> base，其余 -> patch
+				FString NormalizedFile = FPaths::ConvertRelativePathToFull(StagedFile);
+				bool bInWhitelist = false;
+				for (const FString& WhitelistDir : WhitelistContentDirs)
+				{
+					if (NormalizedFile.StartsWith(WhitelistDir, ESearchCase::IgnoreCase))
+					{
+						bInWhitelist = true;
+						break;
+					}
+				}
+
+				if (bInWhitelist)
+					BaseAssets.Add(FHotUpdateResolvedAssetInfo(VirtualPath, FileHash, FileSize));
+				else
+					PatchAssets.Add(FHotUpdateResolvedAssetInfo(VirtualPath, FileHash, FileSize));
 			}
 			else
 			{
@@ -808,14 +935,13 @@ bool FHotUpdateBaseVersionBuilder::SaveResourceHashesInGameThread()
 		// 整包模式：需要收集所有资源
 		FHotUpdatePackagingSettingsResult PackagingResult = FHotUpdatePackagingSettingsHelper::ParsePackagingSettings(true);
 		BaseAssets = ResolveAssetInfo(PackagingResult.AssetPaths, CookedPlatformDir);
-		// 处理 Staged 文件（非 UE 资产）
+		// 整包模式下所有非资产文件都属于 base
 		for (const FString& StagedFile : PackagingResult.NonAssetPaths)
 		{
 			if (FPaths::FileExists(*StagedFile))
 			{
 				int64 FileSize = IFileManager::Get().FileSize(*StagedFile);
 				FString FileHash = UHotUpdateFileUtils::CalculateFileHash(StagedFile);
-				// 使用虚拟路径（/Game/...）而非绝对路径，确保跨机器一致
 				FString VirtualPath = FHotUpdatePackageHelper::FilePathToContentMountPath(StagedFile);
 				if (VirtualPath.IsEmpty())
 				{

@@ -69,6 +69,16 @@ struct HOTUPDATEEDITOR_API FHotUpdateBaseVersionBuildConfig
 struct FHotUpdateResolvedAssetInfo;
 
 /**
+ * 非资产文件的 Chunk 分配信息
+ */
+struct FNonAssetChunkInfo
+{
+	int32 ChunkId = 0;
+	FString PakInternalPath;  // pak 内部路径，如 ../../../GameUpdate/Content/Setting/txt_pak.txt
+	FString SourcePath;        // 完整磁盘路径，如 E:\Test\HotPatch\GameUpdate\Content\Setting\txt_pak.txt
+};
+
+/**
  * 基础版本构建器
  * 负责完整的项目打包（exe/apk）并保存为基础版本
  * 继承 TSharedFromThis 以支持异步任务中的弱引用安全访问
@@ -226,4 +236,7 @@ private:
 
 	/// 缓存的白名单资源列表（首包 Chunk0 资源），由 BuildBaseVersion 填充
 	TArray<FString> CachedWhitelistAssetPaths;
+
+	/// 缓存的非资产文件 Chunk 映射（ChunkId -> 文件列表），由 PreComputeChunkMapping 填充
+	TMap<int32, TArray<FNonAssetChunkInfo>> CachedNonAssetChunkMapping;
 };

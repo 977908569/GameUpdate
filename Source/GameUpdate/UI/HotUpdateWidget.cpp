@@ -8,6 +8,8 @@
 #include "Core/HotUpdateManager.h"
 #include "Core/HotUpdateTypes.h"
 #include "UObject/UObjectGlobals.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 
 UHotUpdateWidget::UHotUpdateWidget(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -40,6 +42,8 @@ UHotUpdateWidget::UHotUpdateWidget(const FObjectInitializer& ObjectInitializer)
 		  NoUpdateText(nullptr),
 		  CloseNoUpdateButton(nullptr),
 		  CloseButton(nullptr),
+		  PakTestContentText(nullptr),
+		  LoadPakTestButton(nullptr),
 		  bIsPaused(false)
 {
 }
@@ -119,6 +123,12 @@ void UHotUpdateWidget::NativeConstruct()
 	if (HotUpdateManager)
 	{
 		UpdateUIForState(HotUpdateManager->GetCurrentState());
+	}
+
+	// 绑定测试按钮事件
+	if (LoadPakTestButton)
+	{
+		LoadPakTestButton->OnClicked.AddDynamic(this, &UHotUpdateWidget::OnLoadPakTestButtonClicked);
 	}
 }
 
@@ -448,4 +458,26 @@ void UHotUpdateWidget::OnApplyButtonClicked()
 void UHotUpdateWidget::OnCloseButtonClicked()
 {
 	CloseWidget();
+}
+
+void UHotUpdateWidget::LoadPakTestContent()
+{
+	if (!PakTestContentText) return;
+
+	FString FilePath = FPaths::ProjectContentDir() / TEXT("Setting/txt_pak.txt");
+	FString FileContent;
+
+	if (FFileHelper::LoadFileToString(FileContent, *FilePath))
+	{
+		PakTestContentText->SetText(FText::FromString(FileContent));
+	}
+	else
+	{
+		PakTestContentText->SetText(FText::FromString(TEXT("文件加载失败")));
+	}
+}
+
+void UHotUpdateWidget::OnLoadPakTestButtonClicked()
+{
+	LoadPakTestContent();
 }

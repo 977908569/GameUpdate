@@ -70,9 +70,6 @@ private:
 	/// 检查临时文件是否存在并获取已下载大小
 	int64 GetExistingTempFileSize(const FString& TempPath) const;
 
-	/// 追加数据到文件
-	bool AppendDataToFile(const FString& FilePath, const TArray<uint8>& Data);
-
 	/// 重试下载任务
 	void RetryTask(TSharedPtr<FDownloadTask> Task);
 

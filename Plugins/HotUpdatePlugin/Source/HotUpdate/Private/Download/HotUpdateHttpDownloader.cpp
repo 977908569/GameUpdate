@@ -24,13 +24,16 @@ struct UHotUpdateHttpDownloader::FDownloadTask
 	int64 ExpectedSize;
 	int64 DownloadedSize;
 	int64 ResumeOffset;      // 断点续传起始位置
-	int64 BytesWrittenToDisk; // 已写入磁盘的字节数（绝对偏移）
 	FString ExpectedHash;    // 期望的文件 Hash（SHA1），用于下载后校验
 	bool bIsCompleted;
 	bool bSuccess;
-	bool bServerIgnoredRange; // 服务器忽略 Range 请求，返回了完整内容
 	int32 RetryCount;        // 当前重试次数
 	EHotUpdateError ErrorType; // 错误类型
+
+	// 流式写入（HTTP 线程写入，需锁保护）
+	TUniquePtr<FArchive> FileWriter;
+	FCriticalSection FileWriterLock;
+	int64 BytesWrittenToDisk = 0; // 已写入磁盘的字节数（绝对偏移）
 };
 
 // === UHotUpdateHttpDownloader ===
@@ -79,7 +82,6 @@ void UHotUpdateHttpDownloader::AddDownloadTask(const FString& Url, const FString
 	Task->BytesWrittenToDisk = 0;
 	Task->bIsCompleted = false;
 	Task->bSuccess = false;
-	Task->bServerIgnoredRange = false;
 	Task->RetryCount = 0;
 
 	// 检查是否存在未完成的临时文件（断点续传）
@@ -257,6 +259,46 @@ void UHotUpdateHttpDownloader::ProcessNextTask()
 			UE_LOG(LogHotUpdate, Log, TEXT("Resuming download from byte %lld: %s"), Task->ResumeOffset, *Task->Url);
 		}
 
+		// 流式写入：curl 数据直接写入磁盘文件，不经过 Payload 缓冲区
+		// 避免 GetContent() 触发 "Payload is incomplete" 警告
+		Task->FileWriter.Reset(IFileManager::Get().CreateFileWriter(*Task->TempPath,
+			Task->ResumeOffset > 0 ? FILEWRITE_Append : FILEWRITE_None));
+		Task->BytesWrittenToDisk = Task->ResumeOffset;
+
+		if (!Task->FileWriter.IsValid())
+		{
+			UE_LOG(LogHotUpdate, Error, TEXT("Failed to create file writer for: %s"), *Task->TempPath);
+			Task->bIsCompleted = true;
+			Task->bSuccess = false;
+			Task->ErrorType = EHotUpdateError::DownloadFailed;
+			ActiveTasks.Remove(Task);
+			CompletedTasks.Add(Task);
+			OnFileComplete.Broadcast(Task->SavePath, false, Task->ErrorType);
+			continue;
+		}
+
+		Request->SetResponseBodyReceiveStreamDelegateV2(
+			FHttpRequestStreamDelegateV2::CreateLambda([Task](void* Ptr, int64& InOutLength)
+			{
+				FScopeLock Lock(&Task->FileWriterLock);
+				if (Task->FileWriter.IsValid())
+				{
+					Task->FileWriter->Serialize(Ptr, InOutLength);
+					if (Task->FileWriter->IsError())
+					{
+						InOutLength = 0;
+					}
+					else
+					{
+						Task->BytesWrittenToDisk += InOutLength;
+					}
+				}
+				else
+				{
+					InOutLength = 0;
+				}
+			}));
+
 		Request->OnProcessRequestComplete().BindUObject(this, &UHotUpdateHttpDownloader::HandleRequestComplete, Task);
 		Request->OnRequestProgress64().BindUObject(this, &UHotUpdateHttpDownloader::HandleRequestProgress, Task);
 
@@ -281,6 +323,12 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 		}
 	}
 
+	// 关闭流式文件写入器（curl 线程已完成数据接收）
+	{
+		FScopeLock FileLock(&Task->FileWriterLock);
+		Task->FileWriter.Reset();
+	}
+
 	// 暂停导致的取消 → 移回待下载队列
 	if (!bSuccess && bIsPaused)
 	{
@@ -297,7 +345,6 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 		HandleTaskFailure(Task, bHandled);
 		if (bHandled)
 		{
-			// 超过重试次数时，任务已标记完成，需要移到完成列表
 			if (Task->bIsCompleted)
 			{
 				ActiveTasks.Remove(Task);
@@ -313,13 +360,6 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 	int32 ResponseCode = Response->GetResponseCode();
 	bool bIsPartialContent = (ResponseCode == 206);
 	bool bIsFullContent = (ResponseCode >= 200 && ResponseCode < 300 && ResponseCode != 206);
-
-	// 检测服务器是否忽略了 Range 请求
-	if (bIsFullContent && Task->ResumeOffset > 0)
-	{
-		UE_LOG(LogHotUpdate, Warning, TEXT("Server ignored Range header, returned full content: %s"), *Task->Url);
-		Task->bServerIgnoredRange = true;
-	}
 
 	if (!bIsPartialContent && !bIsFullContent)
 	{
@@ -340,7 +380,7 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 		}
 	}
 
-	// 保存响应内容
+	// 确认/保存响应内容（数据已由 stream delegate 写入磁盘）
 	int64 DataSize = 0;
 	if (!SaveResponseToFile(Task, Response, bIsPartialContent, DataSize))
 	{
@@ -390,71 +430,43 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 
 bool UHotUpdateHttpDownloader::SaveResponseToFile(TSharedPtr<FDownloadTask> Task, TSharedPtr<IHttpResponse> Response, bool bIsPartialContent, int64& OutDataSize)
 {
-	if (!Response.IsValid())
+	// 数据已由 stream delegate 在 HTTP 线程增量写入磁盘，无需调用 GetContent()
+
+	// 检测服务器忽略 Range 请求：我们发了 Range 头但服务器返回了 200 完整内容
+	// stream delegate 已将完整内容追加到文件末尾（文件 = 旧数据 + 完整新内容）
+	// 需要截断旧数据，保留完整新内容
+	if (!bIsPartialContent && Task->ResumeOffset > 0)
 	{
-		UE_LOG(LogHotUpdate, Error, TEXT("SaveResponseToFile: Invalid response for %s"), *Task->SavePath);
+		UE_LOG(LogHotUpdate, Warning, TEXT("Server ignored Range header, returned full content: %s"), *Task->Url);
+
+		TArray<uint8> FullContent;
+		if (FFileHelper::LoadFileToArray(FullContent, *Task->TempPath) && FullContent.Num() > Task->ResumeOffset)
+		{
+			// 保留 ResumeOffset 之后的数据（即完整新内容）
+			const int64 NewContentSize = FullContent.Num() - Task->ResumeOffset;
+			FFileHelper::SaveArrayToFile(
+				TArray<uint8>(FullContent.GetData() + Task->ResumeOffset, NewContentSize),
+				*Task->TempPath);
+
+			Task->BytesWrittenToDisk = NewContentSize;
+			Task->ResumeOffset = 0;
+			UE_LOG(LogHotUpdate, Log, TEXT("Truncated old data, kept %lld bytes: %s"), NewContentSize, *Task->SavePath);
+		}
+	}
+
+	// 验证磁盘文件大小
+	const int64 ExpectedWritten = Task->BytesWrittenToDisk - Task->ResumeOffset;
+	const int64 FileSize = IFileManager::Get().FileSize(*Task->TempPath);
+	if (FileSize < ExpectedWritten)
+	{
+		UE_LOG(LogHotUpdate, Error, TEXT("File size mismatch: expected %lld, got %lld: %s"),
+			ExpectedWritten, FileSize, *Task->TempPath);
 		return false;
 	}
 
-	const TArray<uint8>& Content = Response->GetContent();
-	OutDataSize = Content.Num();
-
-	bool bSaveSuccess = false;
-
-	// 服务器忽略 Range 请求时，覆盖写入完整内容
-	if (Task->bServerIgnoredRange)
-	{
-		bSaveSuccess = FFileHelper::SaveArrayToFile(Content, *Task->TempPath);
-		if (bSaveSuccess)
-		{
-			UE_LOG(LogHotUpdate, Log, TEXT("Server returned full content, overwritten: %s (%lld bytes)"), *Task->SavePath, OutDataSize);
-		}
-	}
-	// 增量写入模式：数据已在 HandleRequestProgress 中分块写入磁盘
-	else if (Task->BytesWrittenToDisk > 0)
-	{
-		// 写入剩余未写入的部分
-		const int64 AlreadyWritten = Task->BytesWrittenToDisk - Task->ResumeOffset;
-		const int64 Remaining = static_cast<int64>(Content.Num()) - AlreadyWritten;
-		if (Remaining > 0)
-		{
-			bSaveSuccess = AppendDataToFile(Task->TempPath,
-				TArray<uint8>(Content.GetData() + AlreadyWritten, Remaining));
-		}
-		else
-		{
-			bSaveSuccess = true;
-		}
-		if (bSaveSuccess)
-		{
-			UE_LOG(LogHotUpdate, Log, TEXT("Incremental download completed: %s (total: %lld bytes)"),
-				*Task->SavePath, Task->BytesWrittenToDisk + FMath::Max(Remaining, 0LL));
-		}
-	}
-	else if (bIsPartialContent && Task->ResumeOffset > 0)
-	{
-		// 传统续传：服务器返回 206，追加到临时文件
-		bSaveSuccess = AppendDataToFile(Task->TempPath, Content);
-		if (bSaveSuccess)
-		{
-			UE_LOG(LogHotUpdate, Log, TEXT("Resumed download completed: %s (total: %lld bytes)"), *Task->SavePath, Task->ResumeOffset + OutDataSize);
-		}
-	}
-	else
-	{
-		// 全新下载或服务器返回 200（忽略 Range 请求），覆盖写入
-		bSaveSuccess = FFileHelper::SaveArrayToFile(Content, *Task->TempPath);
-		if (bSaveSuccess)
-		{
-			UE_LOG(LogHotUpdate, Verbose, TEXT("Downloaded: %s (%lld bytes)"), *Task->SavePath, OutDataSize);
-		}
-	}
-
-	if (!bSaveSuccess)
-	{
-		UE_LOG(LogHotUpdate, Error, TEXT("Failed to save file: %s"), *Task->TempPath);
-	}
-	return bSaveSuccess;
+	OutDataSize = ExpectedWritten;
+	UE_LOG(LogHotUpdate, Verbose, TEXT("Download data verified on disk: %s (%lld bytes)"), *Task->SavePath, OutDataSize);
+	return true;
 }
 
 bool UHotUpdateHttpDownloader::VerifyAndFinalizeTask(TSharedPtr<FDownloadTask> Task, int64 DataSize)
@@ -488,16 +500,8 @@ bool UHotUpdateHttpDownloader::VerifyAndFinalizeTask(TSharedPtr<FDownloadTask> T
 		return false;
 	}
 
-	// 根据服务器是否忽略 Range 请求来计算最终已下载大小
-	if (Task->bServerIgnoredRange)
-	{
-		Task->DownloadedSize = DataSize;
-	}
-	else
-	{
-		Task->DownloadedSize = Task->ResumeOffset + DataSize;
-	}
-	// 防御性 clamp
+	// 计算最终已下载大小
+	Task->DownloadedSize = Task->BytesWrittenToDisk;
 	if (Task->ExpectedSize > 0)
 	{
 		Task->DownloadedSize = FMath::Min(Task->DownloadedSize, Task->ExpectedSize);
@@ -556,65 +560,12 @@ void UHotUpdateHttpDownloader::HandleRequestProgress(FHttpRequestPtr Request, ui
 		return;
 	}
 
-	// 根据服务器是否忽略 Range 请求来计算实际已下载大小
-	if (Task->bServerIgnoredRange)
-	{
-		// 服务器返回了完整内容，BytesReceived 已包含全部数据
-		Task->DownloadedSize = static_cast<int64>(BytesReceived);
-	}
-	else
-	{
-		Task->DownloadedSize = Task->ResumeOffset + static_cast<int64>(BytesReceived);
-	}
-	// 防御性 clamp，防止进度超过预期大小
+	// BytesReceived 来自 curl 的 CURLINFO_SIZE_DOWNLOAD（通过 TotalBytesRead），与 Payload 无关
+	// 数据已由 stream delegate 写入磁盘，此处只更新进度
+	Task->DownloadedSize = Task->ResumeOffset + static_cast<int64>(BytesReceived);
 	if (Task->ExpectedSize > 0)
 	{
 		Task->DownloadedSize = FMath::Min(Task->DownloadedSize, Task->ExpectedSize);
-	}
-
-	// 增量写入磁盘：每累积 1MB 数据写入一次，确保暂停时数据已持久化
-	// 当服务器忽略 Range 请求时跳过增量写入，由 SaveResponseToFile 统一覆盖写入
-	if (Task->bServerIgnoredRange)
-	{
-		UpdateProgress();
-		return;
-	}
-
-	constexpr int64 WriteChunkSize = 1024 * 1024; // 1MB
-	const int64 AbsoluteReceived = Task->DownloadedSize;
-	const int64 PendingBytes = AbsoluteReceived - Task->BytesWrittenToDisk;
-
-	if (PendingBytes >= WriteChunkSize)
-	{
-		TSharedPtr<IHttpResponse> Response = Request->GetResponse();
-		if (Response.IsValid())
-		{
-			const TArray<uint8>& Content = Response->GetContent();
-			const int64 DataOffset = Task->BytesWrittenToDisk - Task->ResumeOffset;
-			const int64 DataToWrite = static_cast<int64>(Content.Num()) - DataOffset;
-
-			if (DataToWrite > 0)
-			{
-				// 写入磁盘：首次写入创建文件，后续追加
-				bool bWriteSuccess = false;
-				if (Task->BytesWrittenToDisk == 0)
-				{
-					bWriteSuccess = FFileHelper::SaveArrayToFile(
-						TArray<uint8>(Content.GetData() + DataOffset, DataToWrite),
-						*Task->TempPath);
-				}
-				else
-				{
-					bWriteSuccess = AppendDataToFile(Task->TempPath,
-						TArray<uint8>(Content.GetData() + DataOffset, DataToWrite));
-				}
-
-				if (bWriteSuccess)
-				{
-					Task->BytesWrittenToDisk = AbsoluteReceived;
-				}
-			}
-		}
 	}
 
 	UpdateProgress();
@@ -656,7 +607,6 @@ void UHotUpdateHttpDownloader::RetryTask(TSharedPtr<FDownloadTask> Task)
 	Task->ResumeOffset = GetExistingTempFileSize(Task->TempPath);
 	Task->DownloadedSize = Task->ResumeOffset;
 	Task->BytesWrittenToDisk = Task->ResumeOffset;
-	Task->bServerIgnoredRange = false;
 
 	PendingTasks.Add(Task);
 	ProcessNextTask();
@@ -673,22 +623,3 @@ int64 UHotUpdateHttpDownloader::GetExistingTempFileSize(const FString& TempPath)
 	return Size > 0 ? Size : 0;
 }
 
-bool UHotUpdateHttpDownloader::AppendDataToFile(const FString& FilePath, const TArray<uint8>& Data)
-{
-	TUniquePtr<FArchive> FileWriter(IFileManager::Get().CreateFileWriter(*FilePath, FILEWRITE_Append));
-	if (!FileWriter)
-	{
-		UE_LOG(LogHotUpdate, Error, TEXT("Failed to open file for appending: %s"), *FilePath);
-		return false;
-	}
-
-	FileWriter->Serialize(const_cast<uint8*>(Data.GetData()), Data.Num());
-
-	if (FileWriter->IsError())
-	{
-		UE_LOG(LogHotUpdate, Error, TEXT("Failed to write data to file: %s"), *FilePath);
-		return false;
-	}
-
-	return true;
-}

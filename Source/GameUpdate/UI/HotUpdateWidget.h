@@ -102,6 +102,12 @@ protected:
 	UFUNCTION()
 	void OnCloseButtonClicked();
 
+	/** 加载测试文件内容 */
+	void LoadPakTestContent();
+
+	UFUNCTION()
+	void OnLoadPakTestButtonClicked();
+
 protected:
 	// == UI 组件绑定（子类蓝图中绑定）==
 
@@ -215,6 +221,13 @@ protected:
 	// == 关闭按钮（通用）==
 	UPROPERTY(meta = (BindWidgetOptional))
 	UButton* CloseButton;
+
+	// == 热更测试：显示文件内容 ==
+	UPROPERTY(meta = (BindWidgetOptional))
+	UTextBlock* PakTestContentText;
+
+	UPROPERTY(meta = (BindWidgetOptional))
+	UButton* LoadPakTestButton;
 
 private:
 	/** 热更管理器引用 */
