@@ -286,6 +286,22 @@ void UHotUpdateManager::CleanupOldVersions() const
 		return;
 	}
 
+	// 从 manifest containers 中收集所有需要保留的版本号
+	TSet<FString> ManifestVersions;
+	for (const FHotUpdateContainerInfo& Container : CachedServerManifest.Containers)
+	{
+		if (!Container.Version.IsEmpty())
+		{
+			ManifestVersions.Add(Container.Version);
+		}
+	}
+
+	if (ManifestVersions.Num() == 0)
+	{
+		UE_LOG(LogHotUpdate, Warning, TEXT("CleanupOldVersions: manifest has no container versions, skipping"));
+		return;
+	}
+
 	const FString PakRootDir = Settings->GetLocalPakFullPath();
 	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
 
@@ -294,83 +310,43 @@ void UHotUpdateManager::CleanupOldVersions() const
 		return;
 	}
 
-	// 获取所有版本目录
-	TArray<FString> VersionDirs;
-	PlatformFile.IterateDirectory(*PakRootDir, [&VersionDirs, &PlatformFile](const TCHAR* Path, bool bIsDirectory)
+	// 遍历本地版本目录，删除不在 manifest 中的版本
+	int32 DeletedCount = 0;
+	PlatformFile.IterateDirectory(*PakRootDir, [&](const TCHAR* Path, bool bIsDirectory)
 	{
-		if (bIsDirectory)
+		if (!bIsDirectory)
 		{
-			VersionDirs.Add(Path);
+			return true;
 		}
+
+		FString DirName = FPaths::GetCleanFilename(Path);
+
+		// 跳过非版本目录（如 VersionRegistry.json 所在的目录）
+		if (!DirName.IsNumeric() && !DirName.Contains(TEXT(".")))
+		{
+			return true;
+		}
+
+		// 该版本在 manifest 中，保留
+		if (ManifestVersions.Contains(DirName))
+		{
+			return true;
+		}
+
+		FString FullPath = FString(Path);
+		if (PlatformFile.DeleteDirectoryRecursively(*FullPath))
+		{
+			DeletedCount++;
+			UE_LOG(LogHotUpdate, Log, TEXT("Cleaned up old version not in manifest: %s"), *DirName);
+		}
+
 		return true;
 	});
 
-	// 预解析版本号缓存（避免排序时重复解析）
-	TArray<TPair<FString, FHotUpdateVersionInfo>> VersionCache;
-	VersionCache.Reserve(VersionDirs.Num());
-	for (const FString& Dir : VersionDirs)
-	{
-		FHotUpdateVersionInfo Version = FHotUpdateVersionInfo::FromString(FPaths::GetCleanFilename(Dir));
-		VersionCache.Add(TPair<FString, FHotUpdateVersionInfo>(Dir, Version));
-	}
-
-	// 按版本号排序（最新的在前）
-	VersionCache.Sort([](const TPair<FString, FHotUpdateVersionInfo>& A, const TPair<FString, FHotUpdateVersionInfo>& B)
-	{
-		return A.Value > B.Value;
-	});
-
-	// 提取排序后的目录列表
-	VersionDirs.Empty(VersionCache.Num());
-	for (const auto& Pair : VersionCache)
-	{
-		VersionDirs.Add(Pair.Key);
-	}
-
-	// 保留最新的 N 个版本
-	int32 VersionsToKeep = FMath::Max(1, Settings->MaxLocalVersionCount);
-	int32 DeletedCount = 0;
-
-	for (int32 i = VersionsToKeep; i < VersionDirs.Num(); i++)
-	{
-		// 删除前先卸载该目录下所有已挂载的 Pak/IoStore
-		if (PakManager)
-		{
-			TArray<FString> PakFiles;
-			PlatformFile.FindFilesRecursively(PakFiles, *VersionDirs[i], TEXT(".pak"));
-
-			TArray<FString> UtocFiles;
-			PlatformFile.FindFilesRecursively(UtocFiles, *VersionDirs[i], TEXT(".utoc"));
-
-			for (const FString& PakFile : PakFiles)
-			{
-				if (PakManager->IsPakMounted(PakFile))
-				{
-					PakManager->UnmountPak(PakFile);
-					UE_LOG(LogHotUpdate, Log, TEXT("Unmounted before cleanup: %s"), *PakFile);
-				}
-			}
-
-			for (const FString& UtocFile : UtocFiles)
-			{
-				if (PakManager->IsPakMounted(UtocFile))
-				{
-					PakManager->UnmountPak(UtocFile);
-					UE_LOG(LogHotUpdate, Log, TEXT("Unmounted before cleanup: %s"), *UtocFile);
-				}
-			}
-		}
-
-		if (PlatformFile.DeleteDirectoryRecursively(*VersionDirs[i]))
-		{
-			DeletedCount++;
-			UE_LOG(LogHotUpdate, Log, TEXT("Cleaned up old version: %s"), *VersionDirs[i]);
-		}
-	}
-
 	if (DeletedCount > 0)
 	{
-		UE_LOG(LogHotUpdate, Log, TEXT("Cleanup complete: removed %d old versions, keeping %d versions"), DeletedCount, VersionsToKeep);
+		UE_LOG(LogHotUpdate, Log, TEXT("Cleanup complete: removed %d old versions, keeping versions: %s"),
+			DeletedCount, *FString::Join(ManifestVersions.Array(), TEXT(", ")));
 	}
 }
 

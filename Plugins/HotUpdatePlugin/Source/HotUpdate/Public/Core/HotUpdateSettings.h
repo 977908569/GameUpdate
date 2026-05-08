@@ -58,11 +58,7 @@ public:
 	/// 本地 Pak 存储相对路径
 	UPROPERTY(Config, EditAnywhere, Category = "Storage", meta = (DisplayName = "Local Pak Directory"))
 	FString LocalPakDirectory;
-
-	/// 最大本地版本保留数
-	UPROPERTY(Config, EditAnywhere, Category = "Storage", meta = (ClampMin = "1", ClampMax = "10"))
-	int32 MaxLocalVersionCount;
-
+	
 	/// 是否自动清理旧版本
 	UPROPERTY(Config, EditAnywhere, Category = "Storage")
 	bool bAutoCleanupOldVersions;
