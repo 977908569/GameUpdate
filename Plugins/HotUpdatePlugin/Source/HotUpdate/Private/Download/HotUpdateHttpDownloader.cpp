@@ -295,7 +295,19 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 		UE_LOG(LogHotUpdate, Warning, TEXT("HTTP request failed for: %s"), *Task->Url);
 		bool bHandled = false;
 		HandleTaskFailure(Task, bHandled);
-		if (bHandled) return;
+		if (bHandled)
+		{
+			// 超过重试次数时，任务已标记完成，需要移到完成列表
+			if (Task->bIsCompleted)
+			{
+				ActiveTasks.Remove(Task);
+				CompletedTasks.Add(Task);
+				OnFileComplete.Broadcast(Task->SavePath, false, Task->ErrorType);
+				UpdateProgress();
+				ProcessNextTask();
+			}
+			return;
+		}
 	}
 
 	int32 ResponseCode = Response->GetResponseCode();
@@ -314,7 +326,18 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 		UE_LOG(LogHotUpdate, Warning, TEXT("HTTP request returned %d for: %s"), ResponseCode, *Task->Url);
 		bool bHandled = false;
 		HandleTaskFailure(Task, bHandled);
-		if (bHandled) return;
+		if (bHandled)
+		{
+			if (Task->bIsCompleted)
+			{
+				ActiveTasks.Remove(Task);
+				CompletedTasks.Add(Task);
+				OnFileComplete.Broadcast(Task->SavePath, false, Task->ErrorType);
+				UpdateProgress();
+				ProcessNextTask();
+			}
+			return;
+		}
 	}
 
 	// 保存响应内容
@@ -323,7 +346,18 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 	{
 		bool bHandled = false;
 		HandleTaskFailure(Task, bHandled);
-		if (bHandled) return;
+		if (bHandled)
+		{
+			if (Task->bIsCompleted)
+			{
+				ActiveTasks.Remove(Task);
+				CompletedTasks.Add(Task);
+				OnFileComplete.Broadcast(Task->SavePath, false, Task->ErrorType);
+				UpdateProgress();
+				ProcessNextTask();
+			}
+			return;
+		}
 	}
 
 	// 校验 Hash + 重命名
@@ -331,7 +365,18 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 	{
 		bool bHandled = false;
 		HandleTaskFailure(Task, bHandled);
-		if (bHandled) return;
+		if (bHandled)
+		{
+			if (Task->bIsCompleted)
+			{
+				ActiveTasks.Remove(Task);
+				CompletedTasks.Add(Task);
+				OnFileComplete.Broadcast(Task->SavePath, false, Task->ErrorType);
+				UpdateProgress();
+				ProcessNextTask();
+			}
+			return;
+		}
 	}
 
 	// 移到完成列表、广播、更新进度
@@ -356,8 +401,17 @@ bool UHotUpdateHttpDownloader::SaveResponseToFile(TSharedPtr<FDownloadTask> Task
 
 	bool bSaveSuccess = false;
 
+	// 服务器忽略 Range 请求时，覆盖写入完整内容
+	if (Task->bServerIgnoredRange)
+	{
+		bSaveSuccess = FFileHelper::SaveArrayToFile(Content, *Task->TempPath);
+		if (bSaveSuccess)
+		{
+			UE_LOG(LogHotUpdate, Log, TEXT("Server returned full content, overwritten: %s (%lld bytes)"), *Task->SavePath, OutDataSize);
+		}
+	}
 	// 增量写入模式：数据已在 HandleRequestProgress 中分块写入磁盘
-	if (Task->BytesWrittenToDisk > 0)
+	else if (Task->BytesWrittenToDisk > 0)
 	{
 		// 写入剩余未写入的部分
 		const int64 AlreadyWritten = Task->BytesWrittenToDisk - Task->ResumeOffset;
@@ -490,6 +544,8 @@ void UHotUpdateHttpDownloader::HandleTaskFailure(TSharedPtr<FDownloadTask> Task,
 	// 超过重试次数
 	Task->bIsCompleted = true;
 	Task->bSuccess = false;
+	Task->ErrorType = EHotUpdateError::DownloadFailed;
+	bOutHandled = true;
 	UE_LOG(LogHotUpdate, Error, TEXT("Download failed after %d retries: %s"), MaxRetryCount, *Task->Url);
 }
 
@@ -517,6 +573,13 @@ void UHotUpdateHttpDownloader::HandleRequestProgress(FHttpRequestPtr Request, ui
 	}
 
 	// 增量写入磁盘：每累积 1MB 数据写入一次，确保暂停时数据已持久化
+	// 当服务器忽略 Range 请求时跳过增量写入，由 SaveResponseToFile 统一覆盖写入
+	if (Task->bServerIgnoredRange)
+	{
+		UpdateProgress();
+		return;
+	}
+
 	constexpr int64 WriteChunkSize = 1024 * 1024; // 1MB
 	const int64 AbsoluteReceived = Task->DownloadedSize;
 	const int64 PendingBytes = AbsoluteReceived - Task->BytesWrittenToDisk;
@@ -593,6 +656,7 @@ void UHotUpdateHttpDownloader::RetryTask(TSharedPtr<FDownloadTask> Task)
 	Task->ResumeOffset = GetExistingTempFileSize(Task->TempPath);
 	Task->DownloadedSize = Task->ResumeOffset;
 	Task->BytesWrittenToDisk = Task->ResumeOffset;
+	Task->bServerIgnoredRange = false;
 
 	PendingTasks.Add(Task);
 	ProcessNextTask();
