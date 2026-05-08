@@ -9,7 +9,7 @@
  * 版本存储管理器（纯 C++ 类）
  * 负责本地版本信息和 Manifest 的持久化存储
  */
-class HOTUPDATE_API FHotUpdateVersionStorage
+class FHotUpdateVersionStorage
 {
 public:
 	FHotUpdateVersionStorage() = default;

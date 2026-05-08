@@ -191,7 +191,7 @@ TArray<FString> FHotUpdatePackageHelper::CollectDependenciesAndFilterEngine(cons
 			// 使用 IncludeAll 策略收集所有依赖（包括软引用，如地图中放置的 Actor）
 			FHotUpdateAssetFilter::GetDependencies(AssetPath, AssetRegistry, EHotUpdateDependencyStrategy::IncludeAll, Dependencies);
 
-			// 过滤掉引擎资产（引擎资产不需要 Cook，已在引擎 Pak 中）
+			// 过滤掉引擎资产
 			for (const FString& Dep : Dependencies)
 			{
 				if (!UHotUpdateFileUtils::IsEngineAsset(Dep))

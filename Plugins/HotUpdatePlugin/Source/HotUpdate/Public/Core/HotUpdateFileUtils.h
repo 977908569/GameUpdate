@@ -46,6 +46,7 @@ public:
 	 * @param OutBytes 输出字节数组
 	 * @return 是否转换成功
 	 */
+	UFUNCTION(BlueprintCallable, Category = "HotUpdate|File")
 	static bool HexToBytes(const FString& HexString, TArray<uint8>& OutBytes);
 
 	/**
@@ -54,6 +55,7 @@ public:
 	 * @param PackagePath 资产路径（如 /Engine/EngineMaterials/DefaultMaterial）
 	 * @return true 如果是引擎资源
 	 */
+	UFUNCTION(BlueprintCallable, Category = "HotUpdate|File")
 	static bool IsEngineAsset(const FString& PackagePath);
 
 	/**
@@ -62,6 +64,7 @@ public:
 	 * @param OutManifest 输出的 Manifest 数据
 	 * @return 是否解析成功
 	 */
+	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Manifest")
 	static bool ParseManifestFromJson(const FString& JsonString, FHotUpdateManifest& OutManifest);
 
 	/**
@@ -70,6 +73,7 @@ public:
 	 * @param Manifest Manifest 数据
 	 * @return 是否保存成功
 	 */
+	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Manifest")
 	static bool SaveManifestToFile(const FString& FilePath, const FHotUpdateManifest& Manifest);
 
 	/**
@@ -77,5 +81,6 @@ public:
 	 * @param Manifest Manifest 数据
 	 * @return JSON 字符串
 	 */
+	UFUNCTION(BlueprintCallable, Category = "HotUpdate|Manifest")
 	static FString ManifestToJsonString(const FHotUpdateManifest& Manifest);
 };

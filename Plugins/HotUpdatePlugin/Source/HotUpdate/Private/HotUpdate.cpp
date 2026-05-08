@@ -14,14 +14,12 @@ public:
 	virtual void StartupModule() override
 	{
 		UE_LOG(LogHotUpdate, Log, TEXT("HotUpdate module started"));
-		
 	}
 
 	virtual void ShutdownModule() override
 	{
 		UE_LOG(LogHotUpdate, Log, TEXT("HotUpdate module shutdown"));
 	}
-	
 };
 
 #undef LOCTEXT_NAMESPACE

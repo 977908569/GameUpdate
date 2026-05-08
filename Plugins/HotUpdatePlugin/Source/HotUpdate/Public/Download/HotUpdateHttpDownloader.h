@@ -48,7 +48,7 @@ public:
 	/// 是否暂停中
 	virtual bool IsPaused() const override { return bIsPaused; }
 
-	protected:
+private:
 	/// 内部任务结构（前向声明，实现在 cpp 中）
 	struct FDownloadTask;
 
@@ -86,6 +86,9 @@ public:
 	void HandleTaskFailure(TSharedPtr<FDownloadTask> Task, bool& bOutHandled);
 
 private:
+	/// 任务队列锁（保护 PendingTasks、ActiveTasks、CompletedTasks）
+	mutable FCriticalSection TaskQueueLock;
+
 	/// 最大并发数
 	int32 MaxConcurrentDownloads;
 

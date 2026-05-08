@@ -62,6 +62,7 @@ bool FHotUpdateVersionStorage::LoadLocalVersion(FHotUpdateVersionInfo& OutVersio
 bool FHotUpdateVersionStorage::SaveLocalVersion(const FHotUpdateVersionInfo& Version)
 {
 	FString VersionFilePath = GetVersionFilePath();
+	FString TempFilePath = VersionFilePath + TEXT(".tmp");
 
 	// 确保目录存在
 	UHotUpdateFileUtils::EnsureDirectoryExists(FPaths::GetPath(VersionFilePath));
@@ -81,17 +82,24 @@ bool FHotUpdateVersionStorage::SaveLocalVersion(const FHotUpdateVersionInfo& Ver
 	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&JsonString);
 	FJsonSerializer::Serialize(JsonObject.ToSharedRef(), Writer);
 
-	// 保存文件
-	if (FFileHelper::SaveStringToFile(JsonString, *VersionFilePath))
+	// 先写入临时文件
+	if (!FFileHelper::SaveStringToFile(JsonString, *TempFilePath))
 	{
-		UE_LOG(LogHotUpdate, Log, TEXT("Saved local version: %s"), *Version.ToString());
-		return true;
-	}
-	else
-	{
-		UE_LOG(LogHotUpdate, Error, TEXT("Failed to save version file: %s"), *VersionFilePath);
+		UE_LOG(LogHotUpdate, Error, TEXT("Failed to save temp version file: %s"), *TempFilePath);
 		return false;
 	}
+
+	// 原子重命名（替换目标文件）
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+	if (!PlatformFile.MoveFile(*VersionFilePath, *TempFilePath))
+	{
+		UE_LOG(LogHotUpdate, Error, TEXT("Failed to rename temp file to: %s"), *VersionFilePath);
+		PlatformFile.DeleteFile(*TempFilePath);
+		return false;
+	}
+
+	UE_LOG(LogHotUpdate, Log, TEXT("Saved local version: %s"), *Version.ToString());
+	return true;
 }
 
 bool FHotUpdateVersionStorage::LoadLocalManifest(FHotUpdateManifest& OutManifest)

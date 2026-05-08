@@ -56,8 +56,7 @@ bool FHotUpdatePakManager::MountPak(const FString& PakPath, int32 PakOrder, cons
 	if (!EncryptionKey.IsEmpty())
 	{
 		bUseEncryption = true;
-
-		// 将密钥注册到引擎
+		
 		TArray<uint8> KeyBytes;
 		if (UHotUpdateFileUtils::HexToBytes(EncryptionKey, KeyBytes))
 		{
@@ -74,9 +73,27 @@ bool FHotUpdatePakManager::MountPak(const FString& PakPath, int32 PakOrder, cons
 			FAES::FAESKey AesKey;
 			FMemory::Memcpy(AesKey.Key, KeyBytes.GetData(), AESKeySize);
 
-			FGuid TempGuid = FGuid::NewGuid();
-			FCoreDelegates::GetRegisterEncryptionKeyMulticastDelegate().Broadcast(TempGuid, AesKey);
-			UE_LOG(LogHotUpdate, Log, TEXT("Registered encryption key with engine for Pak: %s"), *PakPath);
+			// 检查密钥是否已注册
+			FGuid KeyGuid;
+			if (const FGuid* ExistingGuid = RegisteredEncryptionKeys.Find(EncryptionKey))
+			{
+				KeyGuid = *ExistingGuid;
+				UE_LOG(LogHotUpdate, Log, TEXT("Reusing registered encryption key for Pak: %s"), *PakPath);
+			}
+			else
+			{
+				// 生成确定性 GUID（基于密钥内容的哈希）
+				KeyGuid = FGuid(
+					FCrc::MemCrc32(KeyBytes.GetData(), 4),
+					FCrc::MemCrc32(KeyBytes.GetData() + 4, 4),
+					FCrc::MemCrc32(KeyBytes.GetData() + 8, 4),
+					FCrc::MemCrc32(KeyBytes.GetData() + 12, 4)
+				);
+				RegisteredEncryptionKeys.Add(EncryptionKey, KeyGuid);
+				UE_LOG(LogHotUpdate, Log, TEXT("Registered new encryption key with engine for Pak: %s"), *PakPath);
+			}
+
+			FCoreDelegates::GetRegisterEncryptionKeyMulticastDelegate().Broadcast(KeyGuid, AesKey);
 		}
 		else
 		{
@@ -84,17 +101,16 @@ bool FHotUpdatePakManager::MountPak(const FString& PakPath, int32 PakOrder, cons
 		}
 	}
 
-	// 使用 UE5.7 的 Mount API
-	bool bSuccess = PakPlatformFile->Mount(*PakPath, PakOrder);
+	const bool bSuccess = PakPlatformFile->Mount(*PakPath, PakOrder);
 	if (bSuccess)
 	{
-		// 添加到已挂载列表
+		// 添加到已挂载列表并更新索引
 		FHotUpdatePakMetadata Metadata = ParsePakMetadata(PakPath);
 		Metadata.bIsMounted = true;
-		MountedPaks.Add(Metadata);
+		const int32 NewIndex = MountedPaks.Add(Metadata);
+		PakPathToIndex.Add(PakPath, NewIndex);
 
-		UE_LOG(LogHotUpdate, Log, TEXT("Mounted Pak: %s (Order: %d, Encrypted: %s)"),
-			*PakPath, PakOrder, bUseEncryption ? TEXT("true") : TEXT("false"));
+		UE_LOG(LogHotUpdate, Log, TEXT("Mounted Pak: %s (Order: %d, Encrypted: %s)"), *PakPath, PakOrder, bUseEncryption ? TEXT("true") : TEXT("false"));
 	}
 	else
 	{
@@ -115,12 +131,20 @@ bool FHotUpdatePakManager::UnmountPak(const FString& PakPath)
 	bool bSuccess = PakPlatformFile->Unmount(*PakPath);
 	if (bSuccess)
 	{
-		// 从已挂载列表移除
-		for (int32 i = MountedPaks.Num() - 1; i >= 0; i--)
+		// 从已挂载列表移除并更新索引
+		if (int32* IndexPtr = PakPathToIndex.Find(PakPath))
 		{
-			if (MountedPaks[i].PakPath == PakPath)
+			int32 Index = *IndexPtr;
+			MountedPaks.RemoveAt(Index);
+			PakPathToIndex.Remove(PakPath);
+
+			// 更新后续元素的索引
+			for (auto& Pair : PakPathToIndex)
 			{
-				MountedPaks.RemoveAt(i);
+				if (Pair.Value > Index)
+				{
+					Pair.Value--;
+				}
 			}
 		}
 
@@ -136,14 +160,7 @@ bool FHotUpdatePakManager::UnmountPak(const FString& PakPath)
 
 bool FHotUpdatePakManager::IsPakMounted(const FString& PakPath) const
 {
-	for (const FHotUpdatePakMetadata& Metadata : MountedPaks)
-	{
-		if (Metadata.PakPath == PakPath)
-		{
-			return true;
-		}
-	}
-	return false;
+	return PakPathToIndex.Contains(PakPath);
 }
 
 FHotUpdatePakMetadata FHotUpdatePakManager::ParsePakMetadata(const FString& PakPath)
@@ -155,10 +172,10 @@ FHotUpdatePakMetadata FHotUpdatePakManager::ParsePakMetadata(const FString& PakP
 
 	// 获取文件大小
 	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
-	int64 RawSize = PlatformFile.FileSize(*PakPath);
+	const int64 RawSize = PlatformFile.FileSize(*PakPath);
 	Metadata.PakSize = RawSize > 0 ? RawSize : 0;
 
-	// 尝试从文件名解析版本信息
+	// 尝试从文件名解析版本信息（后备机制，优先从 Manifest 获取）
 	// 假设文件名格式: "HotUpdate_1.2.3.pak" 或 "Chunk_100_1.2.3.pak" 或 "Patch_1.2.3.utoc"
 	FString Filename = Metadata.PakName;
 	Filename.RemoveFromEnd(TEXT(".pak"));
@@ -175,9 +192,24 @@ FHotUpdatePakMetadata FHotUpdatePakManager::ParsePakMetadata(const FString& PakP
 			TArray<FString> VersionParts;
 			Part.ParseIntoArray(VersionParts, TEXT("."));
 
+			// 至少需要 2 个版本部分（如 1.2）
 			if (VersionParts.Num() >= 2)
 			{
-				Metadata.Version = FHotUpdateVersionInfo::FromString(Part);
+				// 验证所有部分都是数字
+				bool bAllDigits = true;
+				for (const FString& VP : VersionParts)
+				{
+					if (VP.IsEmpty() || !VP.IsNumeric())
+					{
+						bAllDigits = false;
+						break;
+					}
+				}
+
+				if (bAllDigits)
+				{
+					Metadata.Version = FHotUpdateVersionInfo::FromString(Part);
+				}
 			}
 		}
 	}

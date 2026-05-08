@@ -55,15 +55,14 @@ void UHotUpdateManager::Initialize(FSubsystemCollectionBase& Collection)
 	// 检查是否自动检查更新
 	if (Settings->bAutoCheckOnStartup)
 	{
-		// 延迟检查更新，使用成员变量保存定时器句柄
-		if (UGameInstance* GameInstance = GetGameInstance())
+		// 延迟检查更新
+		if (const UGameInstance* GameInstance = GetGameInstance())
 		{
-			if (UWorld* World = GameInstance->GetWorld())
+			if (const UWorld* World = GameInstance->GetWorld())
 			{
-				World->GetTimerManager().SetTimer(AutoCheckTimerHandle, [this]()
-				{
-					CheckForUpdate();
-				}, 2.0f, false);
+				FTimerDelegate TimerDelegate;
+				TimerDelegate.BindUObject(this, &UHotUpdateManager::CheckForUpdate);
+				World->GetTimerManager().SetTimer(AutoCheckTimerHandle, TimerDelegate, 1.0f, false);
 			}
 		}
 	}
@@ -91,9 +90,9 @@ void UHotUpdateManager::Deinitialize()
 	}
 
 	// 取消正在运行的 Flow
-	if (Flow.IsValid() && Flow->IsRunning())
+	if (FlowContext.Flow.IsValid() && FlowContext.Flow->IsRunning())
 	{
-		Flow->CancelFlow();
+		FlowContext.Flow->CancelFlow();
 	}
 
 	Super::Deinitialize();
@@ -101,7 +100,7 @@ void UHotUpdateManager::Deinitialize()
 
 void UHotUpdateManager::CheckForUpdate()
 {
-	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
+	const UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
 	UE_LOG(LogHotUpdate, Log, TEXT("ManifestUrl = [%s], ResourceBaseUrl = [%s]"), *Settings->ManifestUrl, *Settings->ResourceBaseUrl);
 
 	StartFlow();
@@ -177,9 +176,9 @@ void UHotUpdateManager::CancelDownload()
 	}
 
 	// 取消 Flow
-	if (Flow.IsValid() && Flow->IsRunning())
+	if (FlowContext.Flow.IsValid() && FlowContext.Flow->IsRunning())
 	{
-		Flow->CancelFlow();
+		FlowContext.Flow->CancelFlow();
 	}
 }
 
@@ -279,15 +278,15 @@ bool UHotUpdateManager::ApplyUpdate()
 	return bSuccess;
 }
 
-void UHotUpdateManager::CleanupOldVersions()
+void UHotUpdateManager::CleanupOldVersions() const
 {
-	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
+	const UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
 	if (!Settings->bAutoCleanupOldVersions)
 	{
 		return;
 	}
 
-	FString PakRootDir = Settings->GetLocalPakFullPath();
+	const FString PakRootDir = Settings->GetLocalPakFullPath();
 	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
 
 	if (!PlatformFile.DirectoryExists(*PakRootDir))
@@ -306,13 +305,27 @@ void UHotUpdateManager::CleanupOldVersions()
 		return true;
 	});
 
-	// 按版本号排序（最新的在前）
-	VersionDirs.Sort([](const FString& A, const FString& B)
+	// 预解析版本号缓存（避免排序时重复解析）
+	TArray<TPair<FString, FHotUpdateVersionInfo>> VersionCache;
+	VersionCache.Reserve(VersionDirs.Num());
+	for (const FString& Dir : VersionDirs)
 	{
-		FHotUpdateVersionInfo VersionA = FHotUpdateVersionInfo::FromString(FPaths::GetCleanFilename(A));
-		FHotUpdateVersionInfo VersionB = FHotUpdateVersionInfo::FromString(FPaths::GetCleanFilename(B));
-		return VersionA > VersionB;
+		FHotUpdateVersionInfo Version = FHotUpdateVersionInfo::FromString(FPaths::GetCleanFilename(Dir));
+		VersionCache.Add(TPair<FString, FHotUpdateVersionInfo>(Dir, Version));
+	}
+
+	// 按版本号排序（最新的在前）
+	VersionCache.Sort([](const TPair<FString, FHotUpdateVersionInfo>& A, const TPair<FString, FHotUpdateVersionInfo>& B)
+	{
+		return A.Value > B.Value;
 	});
+
+	// 提取排序后的目录列表
+	VersionDirs.Empty(VersionCache.Num());
+	for (const auto& Pair : VersionCache)
+	{
+		VersionDirs.Add(Pair.Key);
+	}
 
 	// 保留最新的 N 个版本
 	int32 VersionsToKeep = FMath::Max(1, Settings->MaxLocalVersionCount);
@@ -498,20 +511,20 @@ void UHotUpdateManager::HandleDownloadComplete(bool bSuccess, const FString& Err
 	// 推进 Flow
 	if (bSuccess)
 	{
-		if (DownloadFlowHandle.IsValid())
+		if (FlowContext.DownloadFlowHandle.IsValid())
 		{
-			DownloadFlowHandle->ContinueFlow();
-			DownloadFlowHandle.Reset();
+			FlowContext.DownloadFlowHandle->ContinueFlow();
+			FlowContext.DownloadFlowHandle.Reset();
 		}
 	}
 	else
 	{
 		// 下载失败，取消整个 Flow
-		if (Flow.IsValid() && Flow->IsRunning())
+		if (FlowContext.Flow.IsValid() && FlowContext.Flow->IsRunning())
 		{
-			Flow->CancelFlow();
+			FlowContext.Flow->CancelFlow();
 		}
-		DownloadFlowHandle.Reset();
+		FlowContext.DownloadFlowHandle.Reset();
 	}
 }
 
@@ -546,24 +559,26 @@ void UHotUpdateManager::CalculateIncrementalDownload(
 		{
 			const FHotUpdateContainerInfo* LocalContainer = *LocalContainerPtr;
 
-			// 对比 Hash 判断是否需要更新
+			// 独立对比所有 Hash，收集所有变更原因
+			TArray<FString> ChangeReasons;
 			if (LocalContainer->UcasFile.Hash != ServerContainer.UcasFile.Hash)
 			{
-				bNeedDownload = true;
-				Reason = TEXT("ucas hash changed");
-				OutResult.ModifiedContainerCount++;
+				ChangeReasons.Add(TEXT("ucas hash changed"));
 			}
-			else if (LocalContainer->UtocFile.Hash != ServerContainer.UtocFile.Hash)
+			if (LocalContainer->UtocFile.Hash != ServerContainer.UtocFile.Hash)
+			{
+				ChangeReasons.Add(TEXT("utoc hash changed"));
+			}
+			if (!ServerContainer.PakFile.Hash.IsEmpty() &&
+				LocalContainer->PakFile.Hash != ServerContainer.PakFile.Hash)
+			{
+				ChangeReasons.Add(TEXT("pak hash changed"));
+			}
+
+			if (ChangeReasons.Num() > 0)
 			{
 				bNeedDownload = true;
-				Reason = TEXT("utoc hash changed");
-				OutResult.ModifiedContainerCount++;
-			}
-			else if (!ServerContainer.PakFile.Hash.IsEmpty() &&
-					 LocalContainer->PakFile.Hash != ServerContainer.PakFile.Hash)
-			{
-				bNeedDownload = true;
-				Reason = TEXT("pak hash changed");
+				Reason = FString::Join(ChangeReasons, TEXT(", "));
 				OutResult.ModifiedContainerCount++;
 			}
 		}
@@ -571,7 +586,7 @@ void UHotUpdateManager::CalculateIncrementalDownload(
 		if (bNeedDownload)
 		{
 			OutResult.UpdateContainers.Add(ServerContainer);
-			int64 ContainerSize = ServerContainer.UtocFile.Size + ServerContainer.UcasFile.Size + ServerContainer.PakFile.Size;
+			int64 ContainerSize = ServerContainer.GetTotalSize();
 			OutResult.IncrementalDownloadSize += ContainerSize;
 
 			UE_LOG(LogHotUpdate, Log, TEXT("Need download container: %s (reason: %s, size: %.2f MB)"),
@@ -581,7 +596,7 @@ void UHotUpdateManager::CalculateIncrementalDownload(
 		else
 		{
 			OutResult.SkippedContainerCount++;
-			OutResult.SkippedTotalSize += ServerContainer.UtocFile.Size + ServerContainer.UcasFile.Size + ServerContainer.PakFile.Size;
+			OutResult.SkippedTotalSize += ServerContainer.GetTotalSize();
 			UE_LOG(LogHotUpdate, Verbose, TEXT("Skipped container: %s (unchanged)"),
 				*ServerContainer.ContainerName);
 		}
@@ -616,38 +631,32 @@ void UHotUpdateManager::CalculateIncrementalDownload(
 void UHotUpdateManager::StartFlow()
 {
 	// 取消正在运行的旧 Flow
-	if (Flow.IsValid() && Flow->IsRunning())
+	if (FlowContext.Flow.IsValid() && FlowContext.Flow->IsRunning())
 	{
 		UE_LOG(LogHotUpdate, Log, TEXT("Flow: Cancelling previous flow"));
-		Flow->CancelFlow();
+		FlowContext.Flow->CancelFlow();
 	}
 
-	// 重置状态
-	bVersionCheckHasUpdate = false;
-	LatestJsonResponse.Empty();
-	ManifestUrl.Empty();
-	ManifestJsonBody.Empty();
-	LatestFlowHandle.Reset();
-	ManifestFlowHandle.Reset();
-	DownloadFlowHandle.Reset();
+	// 重置所有中间状态
+	FlowContext.Reset();
 
 	// 构建并启动 Flow
 	BuildFlow();
-	Flow->ExecuteFlow();
+	FlowContext.Flow->ExecuteFlow();
 }
 
 void UHotUpdateManager::BuildFlow()
 {
-	Flow = MakeShared<FControlFlow>(TEXT("HotUpdate"));
+	FlowContext.Flow = MakeShared<FControlFlow>(TEXT("HotUpdate"));
 
-	Flow->QueueStep(TEXT("FetchLatest"), this, &UHotUpdateManager::StepFetchLatest)
+	FlowContext.Flow->QueueStep(TEXT("FetchLatest"), this, &UHotUpdateManager::StepFetchLatest)
 		.QueueStep(TEXT("FetchManifest"), this, &UHotUpdateManager::StepFetchManifest)
 		.QueueStep(TEXT("ProcessVersionCheck"), this, &UHotUpdateManager::StepProcessVersionCheck)
 		.QueueStep(TEXT("Download"), this, &UHotUpdateManager::StepDownload)
 		.QueueStep(TEXT("Apply"), this, &UHotUpdateManager::StepApply);
 
-	Flow->OnFlowComplete().AddUObject(this, &UHotUpdateManager::OnFlowComplete);
-	Flow->OnFlowCancel().AddUObject(this, &UHotUpdateManager::OnFlowCancel);
+	FlowContext.Flow->OnFlowComplete().AddUObject(this, &UHotUpdateManager::OnFlowComplete);
+	FlowContext.Flow->OnFlowCancel().AddUObject(this, &UHotUpdateManager::OnFlowCancel);
 }
 
 // ============================================================
@@ -655,9 +664,9 @@ void UHotUpdateManager::BuildFlow()
 // ============================================================
 void UHotUpdateManager::StepFetchLatest(FControlFlowNodeRef FlowHandle)
 {
-	LatestFlowHandle = FlowHandle;
+	FlowContext.LatestFlowHandle = FlowHandle;
 
-	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
+	const UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
 
 	if (Settings->ManifestUrl.IsEmpty())
 	{
@@ -676,7 +685,7 @@ void UHotUpdateManager::StepFetchLatest(FControlFlowNodeRef FlowHandle)
 
 	SetState(EHotUpdateState::CheckingVersion);
 
-	TSharedRef<IHttpRequest> Request = FHttpModule::Get().CreateRequest();
+	const TSharedRef<IHttpRequest> Request = FHttpModule::Get().CreateRequest();
 	Request->SetURL(Settings->ManifestUrl);
 	Request->SetVerb(TEXT("GET"));
 	Request->SetTimeout(Settings->RequestTimeout);
@@ -692,19 +701,19 @@ void UHotUpdateManager::OnLatestResponse(TSharedPtr<IHttpRequest> Request, TShar
 	if (!bSuccess || !Response.IsValid())
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("Flow: Latest version fetch failed"));
-		FailFlowAndNotify(EHotUpdateError::NetworkError, TEXT("Network request failed"), LatestFlowHandle);
+		FailFlowAndNotify(EHotUpdateError::NetworkError, TEXT("Network request failed"), FlowContext.LatestFlowHandle);
 		return;
 	}
 
-	LatestJsonResponse = Response->GetContentAsString();
+	FlowContext.LatestJsonResponse = Response->GetContentAsString();
 
 	// 解析 latest.json，检查是否有 manifestUrl
 	TSharedPtr<FJsonObject> JsonObject;
-	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(LatestJsonResponse);
+	TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(FlowContext.LatestJsonResponse);
 	if (!FJsonSerializer::Deserialize(Reader, JsonObject) || !JsonObject.IsValid())
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("Flow: Failed to parse latest version response"));
-		FailFlowAndNotify(EHotUpdateError::ParseError, TEXT("Invalid latest version format"), LatestFlowHandle);
+		FailFlowAndNotify(EHotUpdateError::ParseError, TEXT("Invalid latest version format"), FlowContext.LatestFlowHandle);
 		return;
 	}
 
@@ -714,7 +723,7 @@ void UHotUpdateManager::OnLatestResponse(TSharedPtr<IHttpRequest> Request, TShar
 	if (!JsonObject->TryGetObjectField(TEXT("platforms"), PlatformsObj) || !PlatformsObj)
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("Flow: latest.json missing 'platforms' field"));
-		FailFlowAndNotify(EHotUpdateError::ParseError, TEXT("latest.json missing 'platforms' field"), LatestFlowHandle);
+		FailFlowAndNotify(EHotUpdateError::ParseError, TEXT("latest.json missing 'platforms' field"), FlowContext.LatestFlowHandle);
 		return;
 	}
 
@@ -722,7 +731,7 @@ void UHotUpdateManager::OnLatestResponse(TSharedPtr<IHttpRequest> Request, TShar
 	if (!(*PlatformsObj)->TryGetObjectField(CurrentPlatform, PlatformObj) || !PlatformObj)
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("Flow: Platform '%s' not found in latest.json"), *CurrentPlatform);
-		FailFlowAndNotify(EHotUpdateError::ParseError, FString::Printf(TEXT("Platform '%s' not supported"), *CurrentPlatform), LatestFlowHandle);
+		FailFlowAndNotify(EHotUpdateError::ParseError, FString::Printf(TEXT("Platform '%s' not supported"), *CurrentPlatform), FlowContext.LatestFlowHandle);
 		return;
 	}
 
@@ -730,17 +739,17 @@ void UHotUpdateManager::OnLatestResponse(TSharedPtr<IHttpRequest> Request, TShar
 	if (!(*PlatformObj)->TryGetStringField(TEXT("manifestUrl"), FoundManifestUrl) || FoundManifestUrl.IsEmpty())
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("Flow: Platform '%s' missing 'manifestUrl'"), *CurrentPlatform);
-		FailFlowAndNotify(EHotUpdateError::ParseError, TEXT("Platform manifestUrl is empty"), LatestFlowHandle);
+		FailFlowAndNotify(EHotUpdateError::ParseError, TEXT("Platform manifestUrl is empty"), FlowContext.LatestFlowHandle);
 		return;
 	}
 
-	ManifestUrl = FoundManifestUrl;
+	FlowContext.ManifestUrl = FoundManifestUrl;
 	UE_LOG(LogHotUpdate, Log, TEXT("Flow: Found manifestUrl for %s: %s"), *CurrentPlatform, *FoundManifestUrl);
 
-	if (LatestFlowHandle.IsValid())
+	if (FlowContext.LatestFlowHandle.IsValid())
 	{
-		LatestFlowHandle->ContinueFlow();
-		LatestFlowHandle.Reset();
+		FlowContext.LatestFlowHandle->ContinueFlow();
+		FlowContext.LatestFlowHandle.Reset();
 	}
 }
 
@@ -749,13 +758,13 @@ void UHotUpdateManager::OnLatestResponse(TSharedPtr<IHttpRequest> Request, TShar
 // ============================================================
 void UHotUpdateManager::StepFetchManifest(FControlFlowNodeRef FlowHandle)
 {
-	ManifestFlowHandle = FlowHandle;
+	FlowContext.ManifestFlowHandle = FlowHandle;
 
 	// Step1 存入 ManifestUrl（有 manifestUrl）或 ManifestJsonBody（无 manifestUrl 的向后兼容路径）
-	if (!ManifestUrl.IsEmpty())
+	if (!FlowContext.ManifestUrl.IsEmpty())
 	{
-		FString Url = ManifestUrl;
-		ManifestUrl.Empty();
+		FString Url = FlowContext.ManifestUrl;
+		FlowContext.ManifestUrl.Empty();
 
 		UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
 		TSharedRef<IHttpRequest> Request = FHttpModule::Get().CreateRequest();
@@ -772,9 +781,9 @@ void UHotUpdateManager::StepFetchManifest(FControlFlowNodeRef FlowHandle)
 
 	// 已经是完整的 manifest JSON，直接继续
 	UE_LOG(LogHotUpdate, Log, TEXT("Flow: Manifest already available, continuing"));
-	if (ManifestFlowHandle.IsValid())
+	if (FlowContext.ManifestFlowHandle.IsValid())
 	{
-		ManifestFlowHandle->ContinueFlow();
+		FlowContext.ManifestFlowHandle->ContinueFlow();
 	}
 }
 
@@ -783,7 +792,7 @@ void UHotUpdateManager::OnManifestResponse(TSharedPtr<IHttpRequest> Request, TSh
 	if (!bSuccess || !Response.IsValid())
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("Flow: Manifest fetch failed"));
-		FailFlowAndNotify(EHotUpdateError::NetworkError, TEXT("Network request failed"), ManifestFlowHandle);
+		FailFlowAndNotify(EHotUpdateError::NetworkError, TEXT("Network request failed"), FlowContext.ManifestFlowHandle);
 		return;
 	}
 
@@ -791,16 +800,16 @@ void UHotUpdateManager::OnManifestResponse(TSharedPtr<IHttpRequest> Request, TSh
 	if (ResponseCode < 200 || ResponseCode >= 300)
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("Flow: Manifest fetch returned HTTP %d"), ResponseCode);
-		FailFlowAndNotify(EHotUpdateError::NetworkError, FString::Printf(TEXT("Manifest request failed with HTTP %d"), ResponseCode), ManifestFlowHandle);
+		FailFlowAndNotify(EHotUpdateError::NetworkError, FString::Printf(TEXT("Manifest request failed with HTTP %d"), ResponseCode), FlowContext.ManifestFlowHandle);
 		return;
 	}
 
-	ManifestJsonBody = Response->GetContentAsString();
+	FlowContext.ManifestJsonBody = Response->GetContentAsString();
 
-	if (ManifestFlowHandle.IsValid())
+	if (FlowContext.ManifestFlowHandle.IsValid())
 	{
-		ManifestFlowHandle->ContinueFlow();
-		ManifestFlowHandle.Reset();
+		FlowContext.ManifestFlowHandle->ContinueFlow();
+		FlowContext.ManifestFlowHandle.Reset();
 	}
 }
 
@@ -811,7 +820,7 @@ void UHotUpdateManager::StepProcessVersionCheck(FControlFlowNodeRef FlowHandle)
 {
 	// 解析 manifest
 	FHotUpdateManifest ServerManifest;
-	if (!UHotUpdateFileUtils::ParseManifestFromJson(ManifestJsonBody, ServerManifest))
+	if (!UHotUpdateFileUtils::ParseManifestFromJson(FlowContext.ManifestJsonBody, ServerManifest))
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("Flow: Failed to parse manifest"));
 		FailFlowAndNotify(EHotUpdateError::ParseError, TEXT("Invalid manifest format"), FlowHandle);
@@ -823,7 +832,7 @@ void UHotUpdateManager::StepProcessVersionCheck(FControlFlowNodeRef FlowHandle)
 
 	// 版本校验
 	FHotUpdateVersionInfo ServerVersion = ServerManifest.VersionInfo;
-	if (ServerVersion.MajorVersion == 0 && ServerVersion.MinorVersion == 0 && ServerVersion.PatchVersion == 0)
+	if (!ServerVersion.bIsValid)
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("Flow: Invalid version info in manifest"));
 		FailFlowAndNotify(EHotUpdateError::InvalidVersion, TEXT("Invalid version info in manifest"), FlowHandle);
@@ -836,7 +845,7 @@ void UHotUpdateManager::StepProcessVersionCheck(FControlFlowNodeRef FlowHandle)
 
 	// 比较版本
 	VersionCheckResult.bHasUpdate = ServerVersion > CurrentVersion;
-	bVersionCheckHasUpdate = VersionCheckResult.bHasUpdate;
+	FlowContext.bVersionCheckHasUpdate = VersionCheckResult.bHasUpdate;
 
 	// 初始化增量下载统计
 	VersionCheckResult.UpdateContainers.Empty();
@@ -849,9 +858,8 @@ void UHotUpdateManager::StepProcessVersionCheck(FControlFlowNodeRef FlowHandle)
 
 	// 增量对比
 	FHotUpdateManifest LocalManifest;
-	bool bHasLocalManifest = VersionStorage && VersionStorage->LoadLocalManifest(LocalManifest);
 
-	if (bHasLocalManifest)
+	if (VersionStorage && VersionStorage->LoadLocalManifest(LocalManifest))
 	{
 		CalculateIncrementalDownload(ServerManifest, LocalManifest, VersionCheckResult);
 	}
@@ -861,7 +869,7 @@ void UHotUpdateManager::StepProcessVersionCheck(FControlFlowNodeRef FlowHandle)
 		for (const FHotUpdateContainerInfo& Container : ServerManifest.Containers)
 		{
 			VersionCheckResult.UpdateContainers.Add(Container);
-			VersionCheckResult.IncrementalDownloadSize += Container.UtocFile.Size + Container.UcasFile.Size + Container.PakFile.Size;
+			VersionCheckResult.IncrementalDownloadSize += Container.GetTotalSize();
 		}
 		VersionCheckResult.AddedContainerCount = ServerManifest.Containers.Num();
 	}
@@ -870,7 +878,7 @@ void UHotUpdateManager::StepProcessVersionCheck(FControlFlowNodeRef FlowHandle)
 		*ServerVersion.ToString(), VersionCheckResult.UpdateContainers.Num());
 
 	// 设置状态
-	SetState(bVersionCheckHasUpdate ? EHotUpdateState::UpdateAvailable : EHotUpdateState::Idle);
+	SetState(FlowContext.bVersionCheckHasUpdate ? EHotUpdateState::UpdateAvailable : EHotUpdateState::Idle);
 	OnVersionCheckComplete.Broadcast(VersionCheckResult);
 
 	FlowHandle->ContinueFlow();
@@ -881,7 +889,7 @@ void UHotUpdateManager::StepProcessVersionCheck(FControlFlowNodeRef FlowHandle)
 // ============================================================
 void UHotUpdateManager::StepDownload(FControlFlowNodeRef FlowHandle)
 {
-	if (!bVersionCheckHasUpdate)
+	if (!FlowContext.bVersionCheckHasUpdate)
 	{
 		UE_LOG(LogHotUpdate, Log, TEXT("Flow: No update, skipping download"));
 		FlowHandle->ContinueFlow();
@@ -897,7 +905,7 @@ void UHotUpdateManager::StepDownload(FControlFlowNodeRef FlowHandle)
 	}
 
 	// 提前赋值，防止 bAutoDownload 下回调在 ContinueFlow 前先到达导致竞态
-	DownloadFlowHandle = FlowHandle;
+	FlowContext.DownloadFlowHandle = FlowHandle;
 
 	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
 
@@ -910,7 +918,7 @@ void UHotUpdateManager::StepDownload(FControlFlowNodeRef FlowHandle)
 			if (!StartDownload())
 			{
 				UE_LOG(LogHotUpdate, Error, TEXT("Flow: Auto-download failed to start, cancelling flow"));
-				DownloadFlowHandle.Reset();
+				FlowContext.DownloadFlowHandle.Reset();
 				FlowHandle->CancelFlow();
 				return;
 			}
@@ -930,7 +938,7 @@ void UHotUpdateManager::StepDownload(FControlFlowNodeRef FlowHandle)
 // ============================================================
 void UHotUpdateManager::StepApply(FControlFlowNodeRef FlowHandle)
 {
-	if (!bVersionCheckHasUpdate)
+	if (!FlowContext.bVersionCheckHasUpdate)
 	{
 		UE_LOG(LogHotUpdate, Log, TEXT("Flow: No update to apply"));
 		FlowHandle->ContinueFlow();

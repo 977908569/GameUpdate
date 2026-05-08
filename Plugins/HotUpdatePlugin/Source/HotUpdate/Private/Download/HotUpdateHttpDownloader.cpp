@@ -13,6 +13,8 @@
 #include "HAL/FileManager.h"
 
 // === FDownloadTask 内部实现 ===
+// 使用 TSharedPtr 管理生命周期，因为任务在 PendingTasks/ActiveTasks/CompletedTasks 之间流转，
+// 且可能被 HTTP 回调持有，共享所有权是必要的。
 
 struct UHotUpdateHttpDownloader::FDownloadTask
 {
@@ -202,6 +204,8 @@ void UHotUpdateHttpDownloader::ProcessNextTask()
 		return;
 	}
 
+	FScopeLock Lock(&TaskQueueLock);
+
 	// 检查是否所有任务完成
 	if (PendingTasks.Num() == 0 && ActiveTasks.Num() == 0)
 	{
@@ -259,6 +263,8 @@ void UHotUpdateHttpDownloader::ProcessNextTask()
 
 void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Request, TSharedPtr<IHttpResponse> Response, bool bSuccess, TSharedPtr<FDownloadTask> Task)
 {
+	FScopeLock Lock(&TaskQueueLock);
+
 	// 从活跃请求列表移除
 	for (int32 i = ActiveRequests.Num() - 1; i >= 0; i--)
 	{
@@ -278,33 +284,41 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 	}
 
 	// 检查响应状态
-	int32 ResponseCode = Response.IsValid() ? Response->GetResponseCode() : 0;
+	if (!bSuccess || !Response.IsValid())
+	{
+		UE_LOG(LogHotUpdate, Warning, TEXT("HTTP request failed for: %s"), *Task->Url);
+		bool bHandled = false;
+		HandleTaskFailure(Task, bHandled);
+		if (bHandled) return;
+	}
+
+	int32 ResponseCode = Response->GetResponseCode();
 	bool bIsPartialContent = (ResponseCode == 206);
 	bool bIsFullContent = (ResponseCode >= 200 && ResponseCode < 300 && ResponseCode != 206);
-	bool bRequestSuccess = bSuccess && Response.IsValid() && (bIsPartialContent || bIsFullContent);
+
+	if (!bIsPartialContent && !bIsFullContent)
+	{
+		UE_LOG(LogHotUpdate, Warning, TEXT("HTTP request returned %d for: %s"), ResponseCode, *Task->Url);
+		bool bHandled = false;
+		HandleTaskFailure(Task, bHandled);
+		if (bHandled) return;
+	}
 
 	// 保存响应内容
 	int64 DataSize = 0;
-	if (bRequestSuccess)
-	{
-		bRequestSuccess = SaveResponseToFile(Task, Response, bIsPartialContent, DataSize);
-	}
-
-	// 校验 Hash + 重命名
-	if (bRequestSuccess)
-	{
-		bRequestSuccess = VerifyAndFinalizeTask(Task, DataSize);
-	}
-
-	// 处理失败（重试或标记失败）
-	if (!bRequestSuccess)
+	if (!SaveResponseToFile(Task, Response, bIsPartialContent, DataSize))
 	{
 		bool bHandled = false;
 		HandleTaskFailure(Task, bHandled);
-		if (bHandled)
-		{
-			return;
-		}
+		if (bHandled) return;
+	}
+
+	// 校验 Hash + 重命名
+	if (!VerifyAndFinalizeTask(Task, DataSize))
+	{
+		bool bHandled = false;
+		HandleTaskFailure(Task, bHandled);
+		if (bHandled) return;
 	}
 
 	// 移到完成列表、广播、更新进度
@@ -318,6 +332,12 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 
 bool UHotUpdateHttpDownloader::SaveResponseToFile(TSharedPtr<FDownloadTask> Task, TSharedPtr<IHttpResponse> Response, bool bIsPartialContent, int64& OutDataSize)
 {
+	if (!Response.IsValid())
+	{
+		UE_LOG(LogHotUpdate, Error, TEXT("SaveResponseToFile: Invalid response for %s"), *Task->SavePath);
+		return false;
+	}
+
 	const TArray<uint8>& Content = Response->GetContent();
 	OutDataSize = Content.Num();
 
@@ -486,7 +506,7 @@ int64 UHotUpdateHttpDownloader::GetExistingTempFileSize(const FString& TempPath)
 
 bool UHotUpdateHttpDownloader::AppendDataToFile(const FString& FilePath, const TArray<uint8>& Data)
 {
-	FArchive* FileWriter = IFileManager::Get().CreateFileWriter(*FilePath, FILEWRITE_Append);
+	TUniquePtr<FArchive> FileWriter(IFileManager::Get().CreateFileWriter(*FilePath, FILEWRITE_Append));
 	if (!FileWriter)
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("Failed to open file for appending: %s"), *FilePath);
@@ -498,10 +518,8 @@ bool UHotUpdateHttpDownloader::AppendDataToFile(const FString& FilePath, const T
 	if (FileWriter->IsError())
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("Failed to write data to file: %s"), *FilePath);
-		delete FileWriter;
 		return false;
 	}
 
-	delete FileWriter;
 	return true;
 }

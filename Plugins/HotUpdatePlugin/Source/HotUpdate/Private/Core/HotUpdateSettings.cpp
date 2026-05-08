@@ -39,14 +39,13 @@ bool UHotUpdateSettings::ValidateUrl(const FString& Url, FString& OutErrorMessag
 		return false;
 	}
 
-	bool bIsHttps = Url.StartsWith(TEXT("https://"), ESearchCase::IgnoreCase);
-	bool bIsHttp = Url.StartsWith(TEXT("http://"), ESearchCase::IgnoreCase);
+	const bool bIsHttps = Url.StartsWith(TEXT("https://"), ESearchCase::IgnoreCase);
+	const bool bIsHttp = Url.StartsWith(TEXT("http://"), ESearchCase::IgnoreCase);
 
 	if (!bIsHttps && !bIsHttp)
 	{
 		OutErrorMessage = TEXT("URL must start with http:// or https://");
 		return false;
 	}
-
 	return true;
 }

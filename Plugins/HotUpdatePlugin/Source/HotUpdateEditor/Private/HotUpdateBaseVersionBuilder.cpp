@@ -187,8 +187,7 @@ void FHotUpdateBaseVersionBuilder::BuildBaseVersion(const FHotUpdateBaseVersionB
 		CachedWhitelistAssetPaths = WhitelistAssetPaths;
 		CurrentConfig.PreCollectedNonAssetFiles = PackagingResult.NonAssetPaths;
 
-		UE_LOG(LogHotUpdateEditor, Log, TEXT("预收集完成，首包资源: %d 个，热更资源: %d 个，Staged 文件: %d 个"),
-			WhitelistAssetPaths.Num(), PatchAssetPaths.Num(), PackagingResult.NonAssetPaths.Num());
+		UE_LOG(LogHotUpdateEditor, Log, TEXT("预收集完成，首包资源: %d 个，热更资源: %d 个，Staged 文件: %d 个"), WhitelistAssetPaths.Num(), PatchAssetPaths.Num(), PackagingResult.NonAssetPaths.Num());
 	}
 
 	if (CurrentConfig.bSynchronousMode)

@@ -44,8 +44,8 @@ enum class EHotUpdateError : uint8
 UENUM(BlueprintType)
 enum class EHotUpdatePackageKind : uint8
 {
-	Base            UMETA(DisplayName = "基础包"),
-	Patch           UMETA(DisplayName = "更新包")
+	Base            UMETA(DisplayName = "Base"),
+	Patch           UMETA(DisplayName = "Patch")
 };
 
 /**
@@ -54,8 +54,8 @@ enum class EHotUpdatePackageKind : uint8
 UENUM(BlueprintType)
 enum class EHotUpdateContainerType : uint8
 {
-	Base            UMETA(DisplayName = "基础包容器"),
-	Patch           UMETA(DisplayName = "更新包容器")
+	Base            UMETA(DisplayName = "Base Container"),
+	Patch           UMETA(DisplayName = "Patch Container")
 };
 
 /**
@@ -93,6 +93,10 @@ struct HOTUPDATE_API FHotUpdateVersionInfo
 	/// 发布时间戳
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HotUpdate")
 	int64 Timestamp;
+
+	/// 版本是否有效（解析成功时为 true）
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HotUpdate")
+	bool bIsValid;
 
 	/// 比较版本号
 	bool operator>(const FHotUpdateVersionInfo& Other) const
@@ -153,6 +157,9 @@ struct HOTUPDATE_API FHotUpdateVersionInfo
 		if (Parts.Num() >= 3) Result.PatchVersion = ParseVersionPart(Parts[2]);
 		if (Parts.Num() >= 4) Result.BuildNumber = ParseVersionPart(Parts[3]);
 
+		// 至少有一个有效版本部分才标记为有效
+		Result.bIsValid = Parts.Num() >= 1 && !Parts[0].IsEmpty();
+
 		return Result;
 	}
 
@@ -172,6 +179,7 @@ struct HOTUPDATE_API FHotUpdateVersionInfo
 		, PatchVersion(0)
 		, BuildNumber(0)
 		, Timestamp(0)
+		, bIsValid(false)
 	{
 	}
 };
@@ -277,6 +285,12 @@ struct HOTUPDATE_API FHotUpdateContainerInfo
 		: ContainerType(EHotUpdateContainerType::Base)
 		, Version(TEXT(""))
 	{
+	}
+
+	/// 获取容器总大小（utoc + ucas + pak）
+	int64 GetTotalSize() const
+	{
+		return UtocFile.Size + UcasFile.Size + PakFile.Size;
 	}
 
 	/// 比较运算符（基于 ContainerName）

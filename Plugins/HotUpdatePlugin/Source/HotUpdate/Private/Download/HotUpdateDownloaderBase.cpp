@@ -17,6 +17,7 @@ UHotUpdateDownloaderBase::UHotUpdateDownloaderBase()
 void UHotUpdateDownloaderBase::Initialize(int32 InMaxConcurrentDownloads)
 {
 	UE_LOG(LogHotUpdate, Warning, TEXT("UHotUpdateDownloaderBase::Initialize called on base class. Override in platform-specific subclass."));
+	OnComplete.Broadcast(false, TEXT("Initialize not implemented"));
 }
 
 void UHotUpdateDownloaderBase::AddDownloadTask(const FString& Url, const FString& SavePath, int64 ExpectedSize, const FString& InExpectedHash)
@@ -65,6 +66,7 @@ void UHotUpdateDownloaderBase::AddContainerDownloadTasks(const TArray<FHotUpdate
 void UHotUpdateDownloaderBase::StartDownload()
 {
 	UE_LOG(LogHotUpdate, Warning, TEXT("UHotUpdateDownloaderBase::StartDownload called on base class. Override in platform-specific subclass."));
+	OnComplete.Broadcast(false, TEXT("StartDownload not implemented"));
 }
 
 void UHotUpdateDownloaderBase::PauseDownload()
@@ -112,6 +114,11 @@ void UHotUpdateDownloaderBase::UpdateProgressCalculation(int64 TotalDownloaded, 
 		{
 			int64 RemainingBytes = InOutProgress.TotalBytes - TotalDownloaded;
 			InOutProgress.RemainingTime = (float)(RemainingBytes / InOutProgress.DownloadSpeed);
+		}
+		else
+		{
+			// 速度为 0 时，剩余时间设为 -1 表示"计算中"
+			InOutProgress.RemainingTime = -1.0f;
 		}
 
 		InOutLastProgressUpdateTime = CurrentTime;

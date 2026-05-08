@@ -119,7 +119,7 @@ protected:
 	bool VerifyDownloadedFiles();
 
 	/// 清理旧版本
-	void CleanupOldVersions();
+	void CleanupOldVersions() const;
 
 	/// 下载进度回调
 	UFUNCTION()
@@ -197,14 +197,31 @@ private:
 	/// 缓存的服务器 Manifest（用于成功更新后保存到本地）
 	FHotUpdateManifest CachedServerManifest;
 
-	// == Flow 数据 ==
+	/// Flow 中间数据
+	struct FFlowContext
+	{
+		TSharedPtr<FControlFlow> Flow;
+		TSharedPtr<FControlFlowNode> LatestFlowHandle;
+		TSharedPtr<FControlFlowNode> ManifestFlowHandle;
+		TSharedPtr<FControlFlowNode> DownloadFlowHandle;
+		FString LatestJsonResponse;
+		FString ManifestUrl;
+		FString ManifestJsonBody;
+		bool bVersionCheckHasUpdate = false;
 
-	TSharedPtr<FControlFlow> Flow;
-	TSharedPtr<FControlFlowNode> LatestFlowHandle;
-	TSharedPtr<FControlFlowNode> ManifestFlowHandle;
-	TSharedPtr<FControlFlowNode> DownloadFlowHandle;
-	FString LatestJsonResponse;
-	FString ManifestUrl;
-	FString ManifestJsonBody;
-	bool bVersionCheckHasUpdate = false;
+		/// 重置所有中间状态
+		void Reset()
+		{
+			Flow.Reset();
+			LatestFlowHandle.Reset();
+			ManifestFlowHandle.Reset();
+			DownloadFlowHandle.Reset();
+			LatestJsonResponse.Empty();
+			ManifestUrl.Empty();
+			ManifestJsonBody.Empty();
+			bVersionCheckHasUpdate = false;
+		}
+	};
+
+	FFlowContext FlowContext;
 };

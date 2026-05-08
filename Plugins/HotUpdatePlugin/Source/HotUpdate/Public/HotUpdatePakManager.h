@@ -28,10 +28,10 @@ public:
 	bool IsPakMounted(const FString& PakPath) const;
 
 	/// 解析 Pak 元数据
-	FHotUpdatePakMetadata ParsePakMetadata(const FString& PakPath);
+	static FHotUpdatePakMetadata ParsePakMetadata(const FString& PakPath);
 
 	/// 生成 Pak 挂载顺序
-	int32 CalculatePakOrder(const FHotUpdateVersionInfo& Version);
+	static int32 CalculatePakOrder(const FHotUpdateVersionInfo& Version);
 
 private:
 	/// Pak 存储目录
@@ -39,4 +39,10 @@ private:
 
 	/// 已挂载的 Pak 列表
 	TArray<FHotUpdatePakMetadata> MountedPaks;
+
+	/// Pak 路径到 MountedPaks 索引的映射（加速查找）
+	TMap<FString, int32> PakPathToIndex;
+
+	/// 已注册的加密密钥缓存（Key: 密钥十六进制字符串, Value: GUID）
+	TMap<FString, FGuid> RegisteredEncryptionKeys;
 };

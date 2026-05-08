@@ -12,8 +12,7 @@
 
 FString UHotUpdateFileUtils::CalculateFileHash(const FString& FilePath)
 {
-	// 使用流式分块读取，避免将整个文件加载到内存
-	FArchive* FileReader = IFileManager::Get().CreateFileReader(*FilePath);
+	TUniquePtr<FArchive> FileReader(IFileManager::Get().CreateFileReader(*FilePath));
 	if (!FileReader)
 	{
 		return TEXT("");
@@ -35,15 +34,12 @@ FString UHotUpdateFileUtils::CalculateFileHash(const FString& FilePath)
 		if (FileReader->IsError())
 		{
 			UE_LOG(LogHotUpdate, Error, TEXT("Failed to read file for hashing: %s (at offset %lld)"), *FilePath, Offset);
-			delete FileReader;
 			return TEXT("");
 		}
 
 		HashState.Update(Buffer.GetData(), BytesToRead);
 		Offset += BytesToRead;
 	}
-
-	delete FileReader;
 
 	HashState.Final();
 
@@ -131,7 +127,7 @@ bool UHotUpdateFileUtils::HexToBytes(const FString& HexString, TArray<uint8>& Ou
 
 bool UHotUpdateFileUtils::IsEngineAsset(const FString& PackagePath)
 {
-	return PackagePath.Contains(TEXT("Engine/"));
+	return PackagePath.Contains(TEXT("Engine"));
 }
 
 bool UHotUpdateFileUtils::ParseManifestFromJson(const FString& JsonString, FHotUpdateManifest& OutManifest)
@@ -170,6 +166,7 @@ bool UHotUpdateFileUtils::ParseManifestFromJson(const FString& JsonString, FHotU
 			OutManifest.VersionInfo.MinorVersion = Parsed.MinorVersion;
 			OutManifest.VersionInfo.PatchVersion = Parsed.PatchVersion;
 			OutManifest.VersionInfo.BuildNumber = Parsed.BuildNumber;
+			OutManifest.VersionInfo.bIsValid = Parsed.bIsValid;
 		}
 	}
 

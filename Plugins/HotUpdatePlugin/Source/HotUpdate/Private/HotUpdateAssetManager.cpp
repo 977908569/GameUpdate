@@ -18,7 +18,7 @@ bool UHotUpdateAssetManager::GetPackageChunkIds(
 	TArrayView<const int32> ExistingChunkList, TArray<int32>& OutChunkList,
 	TArray<int32>* OutOverrideChunkList) const
 {
-	bool bHasChunkIds = Super::GetPackageChunkIds(PackageName, TargetPlatform, ExistingChunkList, OutChunkList, OutOverrideChunkList);
+	const bool bHasChunkIds = Super::GetPackageChunkIds(PackageName, TargetPlatform, ExistingChunkList, OutChunkList, OutOverrideChunkList);
 
 	if (!bMinimalPackageEnabled)
 	{
