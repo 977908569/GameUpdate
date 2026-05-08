@@ -106,6 +106,14 @@ void UHotUpdateWidget::NativeConstruct()
 	{
 		SkipButton->OnClicked.AddDynamic(this, &UHotUpdateWidget::OnCloseButtonClicked);
 	}
+	if (CancelButton)
+	{
+		CancelButton->OnClicked.AddDynamic(this, &UHotUpdateWidget::OnCloseButtonClicked);
+	}
+	if (RestartButton)
+	{
+		RestartButton->OnClicked.AddDynamic(this, &UHotUpdateWidget::OnCheckButtonClicked);
+	}
 
 	// 初始化UI状态
 	if (HotUpdateManager)
@@ -190,18 +198,30 @@ void UHotUpdateWidget::UpdateUIForState(const EHotUpdateState State) const
 		{
 		case EHotUpdateState::Idle:
 			if (CheckStatePanel) StateSwitcher->SetActiveWidget(CheckStatePanel);
+			if (CheckButton) CheckButton->SetIsEnabled(true);
+			if (CheckButtonText) CheckButtonText->SetText(FText::FromString(TEXT("检查更新")));
 			break;
 		case EHotUpdateState::CheckingVersion:
-			// 检查中状态可以复用检查面板或显示加载动画
 			if (CheckStatePanel) StateSwitcher->SetActiveWidget(CheckStatePanel);
 			if (CheckButtonText) CheckButtonText->SetText(FText::FromString(TEXT("检查中...")));
 			if (CheckButton) CheckButton->SetIsEnabled(false);
 			break;
 		case EHotUpdateState::UpdateAvailable:
 			if (VersionInfoPanel) StateSwitcher->SetActiveWidget(VersionInfoPanel);
+			if (DownloadButton) DownloadButton->SetIsEnabled(true);
 			break;
 		case EHotUpdateState::Downloading:
 			if (DownloadStatePanel) StateSwitcher->SetActiveWidget(DownloadStatePanel);
+			if (PauseButton) PauseButton->SetVisibility(ESlateVisibility::Visible);
+			if (ResumeButton) ResumeButton->SetVisibility(ESlateVisibility::Collapsed);
+			break;
+		case EHotUpdateState::Paused:
+			if (DownloadStatePanel) StateSwitcher->SetActiveWidget(DownloadStatePanel);
+			if (PauseButton) PauseButton->SetVisibility(ESlateVisibility::Collapsed);
+			if (ResumeButton) ResumeButton->SetVisibility(ESlateVisibility::Visible);
+			break;
+		case EHotUpdateState::Downloaded:
+			if (SuccessPanel) StateSwitcher->SetActiveWidget(SuccessPanel);
 			break;
 		case EHotUpdateState::Installing:
 			if (InstallingPanel) StateSwitcher->SetActiveWidget(InstallingPanel);
@@ -312,14 +332,17 @@ void UHotUpdateWidget::OnVersionCheckComplete(const FHotUpdateVersionCheckResult
 		if (CheckButtonText) CheckButtonText->SetText(FText::FromString(TEXT("检查更新")));
 	}
 
-	// 状态机已驱动 UpdateUIForState 切换到 VersionInfoPanel 或 NoUpdatePanel
-	// 这里只需更新版本信息文本
 	if (Result.bHasUpdate)
 	{
 		UpdateVersionInfo();
 	}
 	else
 	{
+		// 无更新，显示 NoUpdatePanel
+		if (StateSwitcher && NoUpdatePanel)
+		{
+			StateSwitcher->SetActiveWidget(NoUpdatePanel);
+		}
 		if (NoUpdateText)
 		{
 			NoUpdateText->SetText(FText::FromString(TEXT("已是最新版本")));
@@ -403,6 +426,7 @@ void UHotUpdateWidget::OnCheckButtonClicked()
 
 void UHotUpdateWidget::OnDownloadButtonClicked()
 {
+	if (DownloadButton) DownloadButton->SetIsEnabled(false);
 	StartDownload();
 }
 
