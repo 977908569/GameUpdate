@@ -24,6 +24,7 @@ struct UHotUpdateHttpDownloader::FDownloadTask
 	int64 ExpectedSize;
 	int64 DownloadedSize;
 	int64 ResumeOffset;      // 断点续传起始位置
+	int64 BytesWrittenToDisk; // 已写入磁盘的字节数（绝对偏移）
 	FString ExpectedHash;    // 期望的文件 Hash（SHA1），用于下载后校验
 	bool bIsCompleted;
 	bool bSuccess;
@@ -74,6 +75,7 @@ void UHotUpdateHttpDownloader::AddDownloadTask(const FString& Url, const FString
 	Task->ExpectedHash = InExpectedHash;
 	Task->DownloadedSize = 0;
 	Task->ResumeOffset = 0;
+	Task->BytesWrittenToDisk = 0;
 	Task->bIsCompleted = false;
 	Task->bSuccess = false;
 	Task->RetryCount = 0;
@@ -82,6 +84,7 @@ void UHotUpdateHttpDownloader::AddDownloadTask(const FString& Url, const FString
 	if (bEnableResume)
 	{
 		Task->ResumeOffset = GetExistingTempFileSize(Task->TempPath);
+		Task->BytesWrittenToDisk = Task->ResumeOffset;
 		if (Task->ResumeOffset > 0)
 		{
 			UE_LOG(LogHotUpdate, Log, TEXT("Found partial download, will resume from offset %lld: %s"), Task->ResumeOffset, *SavePath);
@@ -146,6 +149,7 @@ void UHotUpdateHttpDownloader::ResumeDownload()
 		{
 			Task->ResumeOffset = GetExistingTempFileSize(Task->TempPath);
 			Task->DownloadedSize = Task->ResumeOffset;
+			Task->BytesWrittenToDisk = Task->ResumeOffset;
 		}
 	}
 
@@ -343,8 +347,30 @@ bool UHotUpdateHttpDownloader::SaveResponseToFile(TSharedPtr<FDownloadTask> Task
 
 	bool bSaveSuccess = false;
 
-	if (bIsPartialContent && Task->ResumeOffset > 0)
+	// 增量写入模式：数据已在 HandleRequestProgress 中分块写入磁盘
+	if (Task->BytesWrittenToDisk > 0)
 	{
+		// 写入剩余未写入的部分
+		const int64 AlreadyWritten = Task->BytesWrittenToDisk - Task->ResumeOffset;
+		const int64 Remaining = static_cast<int64>(Content.Num()) - AlreadyWritten;
+		if (Remaining > 0)
+		{
+			bSaveSuccess = AppendDataToFile(Task->TempPath,
+				TArray<uint8>(Content.GetData() + AlreadyWritten, Remaining));
+		}
+		else
+		{
+			bSaveSuccess = true;
+		}
+		if (bSaveSuccess)
+		{
+			UE_LOG(LogHotUpdate, Log, TEXT("Incremental download completed: %s (total: %lld bytes)"),
+				*Task->SavePath, Task->BytesWrittenToDisk + FMath::Max(Remaining, 0LL));
+		}
+	}
+	else if (bIsPartialContent && Task->ResumeOffset > 0)
+	{
+		// 传统续传：服务器返回 206，追加到临时文件
 		bSaveSuccess = AppendDataToFile(Task->TempPath, Content);
 		if (bSaveSuccess)
 		{
@@ -353,6 +379,7 @@ bool UHotUpdateHttpDownloader::SaveResponseToFile(TSharedPtr<FDownloadTask> Task
 	}
 	else
 	{
+		// 全新下载或服务器返回 200（忽略 Range 请求），覆盖写入
 		bSaveSuccess = FFileHelper::SaveArrayToFile(Content, *Task->TempPath);
 		if (bSaveSuccess)
 		{
@@ -446,11 +473,52 @@ void UHotUpdateHttpDownloader::HandleTaskFailure(TSharedPtr<FDownloadTask> Task,
 
 void UHotUpdateHttpDownloader::HandleRequestProgress(FHttpRequestPtr Request, uint64 BytesSent, uint64 BytesReceived, TSharedPtr<FDownloadTask> Task)
 {
-	if (Task.IsValid() && !Task->bIsCompleted)
+	if (!Task.IsValid() || Task->bIsCompleted)
 	{
-		Task->DownloadedSize = Task->ResumeOffset + static_cast<int64>(BytesReceived);
-		UpdateProgress();
+		return;
 	}
+
+	Task->DownloadedSize = Task->ResumeOffset + static_cast<int64>(BytesReceived);
+
+	// 增量写入磁盘：每累积 1MB 数据写入一次，确保暂停时数据已持久化
+	constexpr int64 WriteChunkSize = 1024 * 1024; // 1MB
+	const int64 AbsoluteReceived = Task->ResumeOffset + static_cast<int64>(BytesReceived);
+	const int64 PendingBytes = AbsoluteReceived - Task->BytesWrittenToDisk;
+
+	if (PendingBytes >= WriteChunkSize)
+	{
+		TSharedPtr<IHttpResponse> Response = Request->GetResponse();
+		if (Response.IsValid())
+		{
+			const TArray<uint8>& Content = Response->GetContent();
+			const int64 DataOffset = Task->BytesWrittenToDisk - Task->ResumeOffset;
+			const int64 DataToWrite = static_cast<int64>(Content.Num()) - DataOffset;
+
+			if (DataToWrite > 0)
+			{
+				// 写入磁盘：首次写入创建文件，后续追加
+				bool bWriteSuccess = false;
+				if (Task->BytesWrittenToDisk == 0)
+				{
+					bWriteSuccess = FFileHelper::SaveArrayToFile(
+						TArray<uint8>(Content.GetData() + DataOffset, DataToWrite),
+						*Task->TempPath);
+				}
+				else
+				{
+					bWriteSuccess = AppendDataToFile(Task->TempPath,
+						TArray<uint8>(Content.GetData() + DataOffset, DataToWrite));
+				}
+
+				if (bWriteSuccess)
+				{
+					Task->BytesWrittenToDisk = AbsoluteReceived;
+				}
+			}
+		}
+	}
+
+	UpdateProgress();
 }
 
 void UHotUpdateHttpDownloader::UpdateProgress()
@@ -488,6 +556,7 @@ void UHotUpdateHttpDownloader::RetryTask(TSharedPtr<FDownloadTask> Task)
 	// 重置断点续传偏移（保留已下载的临时文件用于续传）
 	Task->ResumeOffset = GetExistingTempFileSize(Task->TempPath);
 	Task->DownloadedSize = Task->ResumeOffset;
+	Task->BytesWrittenToDisk = Task->ResumeOffset;
 
 	PendingTasks.Add(Task);
 	ProcessNextTask();

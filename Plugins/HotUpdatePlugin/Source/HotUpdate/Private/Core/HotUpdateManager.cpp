@@ -184,15 +184,21 @@ void UHotUpdateManager::CancelDownload()
 
 bool UHotUpdateManager::ApplyUpdate()
 {
-	if (CurrentState != EHotUpdateState::Downloaded)
+	if (CurrentState != EHotUpdateState::Downloaded && CurrentState != EHotUpdateState::Idle)
 	{
 		return false;
 	}
 
+	const bool bHasDownload = (CurrentState == EHotUpdateState::Downloaded);
+
 	SetState(EHotUpdateState::Installing);
 
-	// 验证下载文件的完整性
-	bool bSuccess = VerifyDownloadedFiles();
+	// 仅下载后需要验证文件完整性，已是最新版本时跳过
+	bool bSuccess = true;
+	if (bHasDownload)
+	{
+		bSuccess = VerifyDownloadedFiles();
+	}
 
 	if (bSuccess)
 	{
@@ -201,14 +207,15 @@ bool UHotUpdateManager::ApplyUpdate()
 		{
 			UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
 			FString BasePakDir = Settings->GetLocalPakFullPath();
+			const FHotUpdateVersionInfo& VersionForPath = bHasDownload ? LatestVersion : CurrentVersion;
 
 			int32 MountedCount = 0;
 
 			for (const FHotUpdateContainerInfo& Container : CachedServerManifest.Containers)
 			{
 				// 各容器从自己版本目录挂载，用自己的版本计算挂载顺序
-				FString ContainerPakDir = Container.Version.IsEmpty() ? BasePakDir / LatestVersion.ToString() : BasePakDir / Container.Version;
-				FHotUpdateVersionInfo ContainerVersion = Container.Version.IsEmpty() ? LatestVersion : FHotUpdateVersionInfo::FromString(Container.Version);
+				FString ContainerPakDir = Container.Version.IsEmpty() ? BasePakDir / VersionForPath.ToString() : BasePakDir / Container.Version;
+				FHotUpdateVersionInfo ContainerVersion = Container.Version.IsEmpty() ? VersionForPath : FHotUpdateVersionInfo::FromString(Container.Version);
 				int32 PakOrder = PakManager->CalculatePakOrder(ContainerVersion);
 
 				// Pak 容器
@@ -251,18 +258,21 @@ bool UHotUpdateManager::ApplyUpdate()
 
 		if (bSuccess)
 		{
-			// 更新本地版本
-			CurrentVersion = LatestVersion;
-			if (VersionStorage)
+			if (bHasDownload)
 			{
-				VersionStorage->SaveLocalVersion(CurrentVersion);
+				// 下载后：更新本地版本、保存 Manifest、清理旧版本
+				CurrentVersion = LatestVersion;
+				if (VersionStorage)
+				{
+					VersionStorage->SaveLocalVersion(CurrentVersion);
 
-				// 保存完整的服务器 Manifest 到本地缓存（用于下次增量下载对比）
-				VersionStorage->SaveLocalManifest(CachedServerManifest);
+					// 保存完整的服务器 Manifest 到本地缓存（用于下次增量下载对比）
+					VersionStorage->SaveLocalManifest(CachedServerManifest);
+				}
+
+				// 清理旧版本
+				CleanupOldVersions();
 			}
-
-			// 清理旧版本
-			CleanupOldVersions();
 
 			SetState(EHotUpdateState::Success);
 			UE_LOG(LogHotUpdate, Log, TEXT("Update applied successfully"));
@@ -914,13 +924,7 @@ void UHotUpdateManager::StepDownload(FControlFlowNodeRef FlowHandle)
 // ============================================================
 void UHotUpdateManager::StepApply(FControlFlowNodeRef FlowHandle)
 {
-	if (!FlowContext.bVersionCheckHasUpdate)
-	{
-		UE_LOG(LogHotUpdate, Log, TEXT("Flow: No update to apply"));
-		FlowHandle->ContinueFlow();
-		return;
-	}
-
+	// 无论是否有更新，都执行 ApplyUpdate（无更新时仅挂载本地 Pak）
 	if (!ApplyUpdate())
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("Flow: ApplyUpdate failed, cancelling flow"));
