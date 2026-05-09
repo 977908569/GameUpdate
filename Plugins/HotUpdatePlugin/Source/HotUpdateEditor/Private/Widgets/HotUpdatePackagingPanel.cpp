@@ -416,7 +416,7 @@ TSharedRef<SWidget> SHotUpdatePackagingPanel::CreateBasicSettings()
 			.Padding(0, 2, 12, 2)
 			[
 				SAssignNew(IncrementalCookCheckBox, SCheckBox)
-				.IsChecked(ECheckBoxState::Unchecked)
+				.IsChecked(ECheckBoxState::Checked)
 				.ToolTipText(LOCTEXT("IncrementalCookTooltip", "只 Cook 有变更的资源，大幅减少 Cook 时间。基于 Diff 结果确定变更资源，使用 -PACKAGE 只 Cook 指定资源。需要已有 Cooked 输出作为基准"))
 				[
 					SNew(STextBlock)
@@ -428,7 +428,7 @@ TSharedRef<SWidget> SHotUpdatePackagingPanel::CreateBasicSettings()
 			.Padding(0, 2, 12, 2)
 			[
 				SAssignNew(SkipBuildCheckBox, SCheckBox)
-				.IsChecked(ECheckBoxState::Unchecked)
+				.IsChecked(ECheckBoxState::Checked)
 				.ToolTipText(LOCTEXT("SkipBuildTooltip", "跳过编译步骤。如果项目已编译，可以跳过以避免 Live Coding 冲突。如不确定请勿勾选，否则可能使用旧代码逻辑"))
 				[
 					SNew(STextBlock)
