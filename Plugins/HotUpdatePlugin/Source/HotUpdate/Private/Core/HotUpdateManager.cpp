@@ -928,7 +928,13 @@ void UHotUpdateManager::StepDownload(FControlFlowNodeRef FlowHandle)
 // ============================================================
 void UHotUpdateManager::StepApply(FControlFlowNodeRef FlowHandle)
 {
-	// 无论是否有更新，都执行 ApplyUpdate（无更新时仅挂载本地 Pak）
+	if (!FlowContext.bVersionCheckHasUpdate)
+	{
+		UE_LOG(LogHotUpdate, Log, TEXT("Flow: No update available, skipping apply"));
+		FlowHandle->ContinueFlow();
+		return;
+	}
+
 	if (!ApplyUpdate())
 	{
 		UE_LOG(LogHotUpdate, Error, TEXT("Flow: ApplyUpdate failed, cancelling flow"));

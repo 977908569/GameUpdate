@@ -375,93 +375,6 @@ struct HOTUPDATE_API FHotUpdatePakMetadata
 };
 
 /**
- * Pak 文件条目信息
- */
-USTRUCT(BlueprintType)
-struct HOTUPDATE_API FHotUpdatePakEntry
-{
-	GENERATED_BODY()
-
-	/// 文件在 Pak 中的路径
-	UPROPERTY(BlueprintReadOnly, Category = "HotUpdate|Pak")
-	FString FileName;
-
-	/// 文件大小（原始大小）
-	UPROPERTY(BlueprintReadOnly, Category = "HotUpdate|Pak")
-	int64 UncompressedSize;
-
-	/// 压缩后大小
-	UPROPERTY(BlueprintReadOnly, Category = "HotUpdate|Pak")
-	int64 CompressedSize;
-
-	/// 文件偏移量
-	UPROPERTY(BlueprintReadOnly, Category = "HotUpdate|Pak")
-	int64 Offset;
-
-	/// 是否压缩
-	UPROPERTY(BlueprintReadOnly, Category = "HotUpdate|Pak")
-	bool bIsCompressed;
-
-	/// 是否加密
-	UPROPERTY(BlueprintReadOnly, Category = "HotUpdate|Pak")
-	bool bIsEncrypted;
-
-	/// SHA1 Hash
-	UPROPERTY(BlueprintReadOnly, Category = "HotUpdate|Pak")
-	FString FileHash;
-
-	FHotUpdatePakEntry()
-		: UncompressedSize(0)
-		, CompressedSize(0)
-		, Offset(0)
-		, bIsCompressed(false)
-		, bIsEncrypted(false)
-	{
-	}
-};
-
-/**
- * Manifest 文件条目
- */
-USTRUCT(BlueprintType)
-struct HOTUPDATE_API FHotUpdateManifestEntry
-{
-	GENERATED_BODY()
-
-	/// 文件路径（相对路径，带后缀）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HotUpdate")
-	FString FilePath;
-
-	/// 文件大小
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HotUpdate")
-	int64 FileSize;
-
-	/// 文件 SHA1 Hash
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HotUpdate")
-	FString FileHash;
-
-	/// 所属 Chunk ID
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HotUpdate")
-	int32 ChunkId;
-
-	/// 是否压缩
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HotUpdate")
-	bool bIsCompressed;
-
-	/// 压缩后大小
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HotUpdate")
-	int64 CompressedSize;
-
-	FHotUpdateManifestEntry()
-		: FileSize(0)
-		, ChunkId(-1)
-		, bIsCompressed(false)
-		, CompressedSize(0)
-	{
-	}
-};
-
-/**
  * 版本检查结果
  */
 USTRUCT(BlueprintType)
@@ -521,12 +434,12 @@ struct HOTUPDATE_API FHotUpdateVersionCheckResult
 
 	FHotUpdateVersionCheckResult()
 		: bHasUpdate(false)
-		, SkippedContainerCount(0)
-		, SkippedTotalSize(0)
-		, AddedContainerCount(0)
-		, ModifiedContainerCount(0)
-		, DeletedContainerCount(0)
-		, IncrementalDownloadSize(0)
+		  , ErrorCode(), SkippedContainerCount(0)
+		  , SkippedTotalSize(0)
+		  , AddedContainerCount(0)
+		  , ModifiedContainerCount(0)
+		  , DeletedContainerCount(0)
+		  , IncrementalDownloadSize(0)
 	{
 	}
 };

@@ -197,7 +197,7 @@ void UHotUpdateCommandlet::ShowHelp()
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -output               输出目录路径"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -manifest             基础版本Manifest文件路径 (热更包需要)"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -shipping             是否为发布版本构建 (base 模式)"));
-	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -skipbuild            是否跳过编译步骤 (仅 patch 模式，base 模式必须编译)"));
+	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -skipbuild            是否跳过编译步骤 (base/patch 模式均可使用，编辑器进程内运行时需要跳过)"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -minimal              启用最小包模式 (base 模式)"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -whitelist            必须包含的目录，分号分隔 (如 /Game/UI;/Game/Maps)"));
 	UE_LOG(LogHotUpdateCommandlet, Log, TEXT("  -textureformat        Android 纹理格式: ETC2, ASTC, DXT, Multi (base 模式, 默认 ETC2)"));
@@ -228,6 +228,7 @@ int32 UHotUpdateCommandlet::ExecuteBasePackage()
 	Config.VersionString = Version;
 	Config.Platform = ParsePlatform(PlatformStr);
 	Config.BuildConfiguration = bIsShipping ? EHotUpdateBuildConfiguration::Shipping : EHotUpdateBuildConfiguration::Development;
+	Config.bSkipBuild = bSkipBuild;
 	Config.bSynchronousMode = true;
 
 	// 配置 Android 纹理格式

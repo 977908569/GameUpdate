@@ -41,6 +41,11 @@ struct HOTUPDATEEDITOR_API FHotUpdateBaseVersionBuildConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	EHotUpdateAndroidTextureFormat AndroidTextureFormat;
 
+	/// 是否跳过编译步骤（默认 false = 编译后再 Cook）
+	/// 在编辑器进程内运行 commandlet 时，DLL 被锁定无法重新编译，需要跳过
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bSkipBuild;
+
 	/// 同步执行模式
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bSynchronousMode;
@@ -60,6 +65,7 @@ struct HOTUPDATEEDITOR_API FHotUpdateBaseVersionBuildConfig
 		, BuildConfiguration(EHotUpdateBuildConfiguration::Development)
 		, AndroidPackageName(TEXT("com.dragonli.czm"))
 		, AndroidTextureFormat(EHotUpdateAndroidTextureFormat::ETC2)
+		, bSkipBuild(false)
 		, bSynchronousMode(false)
 	{
 	}

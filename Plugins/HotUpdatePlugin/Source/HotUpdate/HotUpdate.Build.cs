@@ -14,7 +14,6 @@ public class HotUpdate : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
-			"PakFile",
 			"Json",
 			"JsonUtilities",
 			"DeveloperSettings",
@@ -25,6 +24,7 @@ public class HotUpdate : ModuleRules
 		{
 			"Projects",
 			"HTTP",
+			"PakFile",
 			"AssetRegistry"
 		});
 	}

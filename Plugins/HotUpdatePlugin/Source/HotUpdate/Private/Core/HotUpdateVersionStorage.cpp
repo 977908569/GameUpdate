@@ -133,15 +133,24 @@ bool FHotUpdateVersionStorage::LoadLocalManifest(FHotUpdateManifest& OutManifest
 bool FHotUpdateVersionStorage::SaveLocalManifest(const FHotUpdateManifest& Manifest)
 {
 	FString ManifestPath = GetManifestFilePath();
+	FString TempFilePath = ManifestPath + TEXT(".tmp");
 
-	if (UHotUpdateFileUtils::SaveManifestToFile(ManifestPath, Manifest))
+	// 先写入临时文件
+	if (!UHotUpdateFileUtils::SaveManifestToFile(TempFilePath, Manifest))
 	{
-		UE_LOG(LogHotUpdate, Log, TEXT("Saved local manifest: %s"), *ManifestPath);
-		return true;
-	}
-	else
-	{
-		UE_LOG(LogHotUpdate, Error, TEXT("Failed to save manifest: %s"), *ManifestPath);
+		UE_LOG(LogHotUpdate, Error, TEXT("Failed to save temp manifest: %s"), *TempFilePath);
 		return false;
 	}
+
+	// 原子重命名（替换目标文件）
+	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+	if (!PlatformFile.MoveFile(*ManifestPath, *TempFilePath))
+	{
+		UE_LOG(LogHotUpdate, Error, TEXT("Failed to rename temp manifest to: %s"), *ManifestPath);
+		PlatformFile.DeleteFile(*TempFilePath);
+		return false;
+	}
+
+	UE_LOG(LogHotUpdate, Log, TEXT("Saved local manifest: %s"), *ManifestPath);
+	return true;
 }
