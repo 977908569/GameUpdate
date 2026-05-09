@@ -1079,9 +1079,9 @@ struct HOTUPDATEEDITOR_API FHotUpdateCustomPackageConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "IoStore")
 	FHotUpdateIoStoreConfig IoStoreConfig;
 
-	/// 是否跳过 Cook 步骤
+	/// 是否增量 Cook（只 Cook 选中资源，不勾选则全量 Cook）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
-	bool bSkipCook = false;
+	bool bIncrementalCook = true;
 
 	/// 是否跳过编译步骤
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging")
@@ -1094,6 +1094,9 @@ struct HOTUPDATEEDITOR_API FHotUpdateCustomPackageConfig
 	/// Pak 挂载优先级（容器名 _n_P 中的 n，0=默认_P，数字越大优先级越高）
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Packaging", meta = (ClampMin = "0"))
 	int32 PakPriority = 10;
+
+	/// 自定义 Pak 名称（容器文件名，不含扩展名）
+	FString CustomPakName = TEXT("CustomPatch_10");
 
 	bool bSynchronousMode = false;
 };

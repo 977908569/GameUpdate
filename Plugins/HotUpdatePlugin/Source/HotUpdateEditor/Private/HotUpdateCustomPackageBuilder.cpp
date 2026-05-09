@@ -74,11 +74,11 @@ FHotUpdateCustomPackageResult FHotUpdateCustomPackageBuilder::ExecuteBuild(const
 		UE_LOG(LogHotUpdateEditor, Log, TEXT("跳过编译步骤 (bSkipBuild = true)"));
 	}
 
-	// 只 Cook uasset 资源（依赖已在主线程收集）
-	if (!Config.bSkipCook && AssetPathsToCook.Num() > 0)
+	// Cook uasset 资源：增量模式只 Cook 选中资源，否则全量 Cook
+	if (AssetPathsToCook.Num() > 0)
 	{
-		UpdateProgress(TEXT("增量 Cook 资源"), TEXT(""), 0, AssetPathsToCook.Num());
-		if (!FHotUpdatePackageHelper::CookAssets(Config.Platform, AssetPathsToCook))
+		UpdateProgress(Config.bIncrementalCook ? TEXT("增量 Cook 资源") : TEXT("全量 Cook 资源"), TEXT(""), 0, AssetPathsToCook.Num());
+		if (!FHotUpdatePackageHelper::CookAssets(Config.Platform, Config.bIncrementalCook ? AssetPathsToCook : TArray<FString>()))
 		{
 			Result.bSuccess = false;
 			Result.ErrorMessage = TEXT("Cook 资源失败");
@@ -87,30 +87,55 @@ FHotUpdateCustomPackageResult FHotUpdateCustomPackageBuilder::ExecuteBuild(const
 		}
 	}
 
-	// 构建合并的 AssetDiskPaths 映射
+	// 构建合并的虚拟路径列表和虚拟路径→磁盘路径映射（供 Hash 计算使用）
 	TArray<FString> ValidAssetPaths;
 	TArray<FString> ValidNonAssetPaths;
+	TMap<FString, FString> AllVirtualToDisk;
 
-	// uasset 文件：磁盘路径已经可用
 	FString CookedPlatformDir = HotUpdateUtils::GetCookedPlatformDir(Config.Platform);
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("自定义打包: 输入 uasset %d 个, 非资产 %d 个"), Config.UAssetFilePaths.Num(), Config.NonAssetFilePaths.Num());
+
+	// uasset 文件：磁盘路径转虚拟路径（IoStoreBuilder 需要虚拟路径来查找 Cooked 文件）
 	for (const FString& UassetPath : Config.UAssetFilePaths)
 	{
 		if (FPaths::FileExists(*UassetPath))
 		{
-			ValidAssetPaths.Add(UassetPath);
+			FString VirtualPath = FHotUpdatePackageHelper::FilePathToLongPackageName(UassetPath);
+			if (!VirtualPath.IsEmpty())
+			{
+				AllVirtualToDisk.Add(VirtualPath, UassetPath);
+				ValidAssetPaths.Add(VirtualPath);
+				UE_LOG(LogHotUpdateEditor, Log, TEXT("自定义打包: uasset 有效: %s -> %s"), *UassetPath, *VirtualPath);
+			}
+			else
+			{
+				UE_LOG(LogHotUpdateEditor, Warning, TEXT("自定义打包: uasset 无法转虚拟路径，使用原始路径: %s"), *UassetPath);
+				ValidAssetPaths.Add(UassetPath);
+			}
 		}
 		else
 		{
-			UE_LOG(LogHotUpdateEditor, Warning, TEXT("自定义打包: 跳过无 cooked 文件的 uasset: %s"), *UassetPath);
+			UE_LOG(LogHotUpdateEditor, Warning, TEXT("自定义打包: 跳过不存在的 uasset: %s"), *UassetPath);
 		}
 	}
 
-	// non-asset 文件：直接使用原始磁盘路径
+	// non-asset 文件：转虚拟路径（与 PatchPackageBuilder 一致）
 	for (const FString& NonAssetPath : Config.NonAssetFilePaths)
 	{
 		if (FPaths::FileExists(*NonAssetPath))
 		{
-			ValidNonAssetPaths.Add(NonAssetPath);
+			FString VirtualPath = FHotUpdatePackageHelper::FilePathToContentMountPath(NonAssetPath);
+			if (!VirtualPath.IsEmpty())
+			{
+				AllVirtualToDisk.Add(VirtualPath, NonAssetPath);
+				ValidNonAssetPaths.Add(VirtualPath);
+				UE_LOG(LogHotUpdateEditor, Log, TEXT("自定义打包: 非资产有效: %s -> %s"), *NonAssetPath, *VirtualPath);
+			}
+			else
+			{
+				UE_LOG(LogHotUpdateEditor, Warning, TEXT("自定义打包: 非资产文件无法转虚拟路径，使用原始路径: %s"), *NonAssetPath);
+				ValidNonAssetPaths.Add(NonAssetPath);
+			}
 		}
 		else
 		{
@@ -118,7 +143,7 @@ FHotUpdateCustomPackageResult FHotUpdateCustomPackageBuilder::ExecuteBuild(const
 		}
 	}
 
-	UE_LOG(LogHotUpdateEditor, Log, TEXT("自定义打包: 有效资源 %d 个"), ValidAssetPaths.Num());
+	UE_LOG(LogHotUpdateEditor, Log, TEXT("自定义打包: 有效 uasset %d 个, 有效非资产 %d 个"), ValidAssetPaths.Num(), ValidNonAssetPaths.Num());
 
 	if (ValidAssetPaths.Num() == 0 && ValidNonAssetPaths.Num() == 0)
 	{
@@ -149,13 +174,15 @@ FHotUpdateCustomPackageResult FHotUpdateCustomPackageBuilder::ExecuteBuild(const
 		}
 
 		const FString& AssetPath = AllAssets[i];
-		const FString SourcePath = FHotUpdatePackageHelper::GetAssetSourcePath(AssetPath);
+		// 虚拟路径通过映射获取磁盘路径，无映射时 fallback 到 GetAssetSourcePath
+		const FString* MappedDiskPath = AllVirtualToDisk.Find(AssetPath);
+		const FString SourcePath = MappedDiskPath ? *MappedDiskPath : FHotUpdatePackageHelper::GetAssetSourcePath(AssetPath);
 		if (!FPaths::FileExists(*SourcePath))
 		{
 			UE_LOG(LogHotUpdateEditor, Warning, TEXT("自定义打包: 跳过不存在的文件: %s->%s"), *AssetPath, *SourcePath);
 			continue;
 		}
-		
+
 		if (!SourcePath.IsEmpty())
 		{
 			AssetHashes.Add(AssetPath, UHotUpdateFileUtils::CalculateFileHash(SourcePath));
@@ -190,8 +217,9 @@ FHotUpdateCustomPackageResult FHotUpdateCustomPackageBuilder::ExecuteBuild(const
 
 		FHotUpdateIoStoreConfig IoStoreConfig = Config.IoStoreConfig;
 		IoStoreConfig.bUseIoStore = false;
-		FString PrioritySuffix = FString::Printf(TEXT("_%d_P"), Config.PakPriority);
-		IoStoreConfig.ContainerName = FString::Printf(TEXT("%s%s"), *Config.PatchVersion, *PrioritySuffix);
+		IoStoreConfig.ContainerName = Config.CustomPakName.IsEmpty()
+			? FString::Printf(TEXT("%s_%d_P"), *Config.PatchVersion, Config.PakPriority)
+			: Config.CustomPakName;
 
 		FString PaksDir = FPaths::Combine(OutputDir, TEXT("Paks"));
 		IPlatformFile::GetPlatformPhysical().CreateDirectoryTree(*PaksDir);

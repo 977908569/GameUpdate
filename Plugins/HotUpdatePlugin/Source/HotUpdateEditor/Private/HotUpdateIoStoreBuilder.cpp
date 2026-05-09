@@ -274,6 +274,12 @@ bool FHotUpdateIoStoreBuilder::GenerateResponseFile(
 		// 使用 AssetPath 计算 Pak 内部路径
 		FString PakInternalPath = FHotUpdatePackageHelper::GetAssetPakMountPath(AssetPath);
 
+		if (PakInternalPath.IsEmpty())
+		{
+			UE_LOG(LogHotUpdateEditor, Warning, TEXT("无法计算 Pak 内部路径，跳过: %s"), *AssetPath);
+			continue;
+		}
+
 		// UE 资产的虚拟包路径没有扩展名，需要从 DiskPath（源文件）获取扩展名添加到 PakInternalPath
 		// 例如：/Game/Maps/Start -> ../../../GameUpdate/Content/Maps/Start.umap
 		if (bIsUAsset && !DiskPath.IsEmpty())

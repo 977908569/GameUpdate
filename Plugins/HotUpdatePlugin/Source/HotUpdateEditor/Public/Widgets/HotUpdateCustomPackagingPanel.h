@@ -112,12 +112,15 @@ private:
 	/** 非资产列表项 */
 	TArray<TSharedPtr<FString>> NonAssetListItems;
 
-	/** 跳过 Cook 复选框 */
-	TSharedPtr<SCheckBox> SkipCookCheckBox;
+	/** 增量 Cook 复选框 */
+	TSharedPtr<SCheckBox> IncrementalCookCheckBox;
 
 	/** 跳过编译复选框 */
 	TSharedPtr<SCheckBox> SkipBuildCheckBox;
 
 	/** Pak 优先级输入 */
 	TSharedPtr<SSpinBox<float>> PakPrioritySpinBox;
+
+	/** 自定义 Pak 名称输入 */
+	TSharedPtr<SEditableTextBox> CustomPakNameTextBox;
 };

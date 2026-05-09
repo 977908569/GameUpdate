@@ -163,6 +163,17 @@ TSharedRef<SWidget> SHotUpdateCustomPackagingPanel::CreateBasicSettings()
 				.ToolTipText(LOCTEXT("PakPriorityTooltip", "数字越大优先级越高，默认10"))
 			)
 		]
+		// 自定义 Pak 名称
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		[
+			MakeSettingRow(
+				LOCTEXT("CustomPakNameLabel", "Pak 名称:"),
+				SAssignNew(CustomPakNameTextBox, SEditableTextBox)
+				.Text(FText::FromString(TEXT("CustomPatch_10")))
+				.ToolTipText(LOCTEXT("CustomPakNameTooltip", "自定义输出 Pak 文件名（不含扩展名），默认 CustomPatch_10"))
+			)
+		]
 		// 目标平台
 		+ SVerticalBox::Slot()
 		.AutoHeight()
@@ -328,12 +339,12 @@ TSharedRef<SWidget> SHotUpdateCustomPackagingPanel::CreateBasicSettings()
 			+ SWrapBox::Slot()
 			.Padding(0, 2, 12, 2)
 			[
-				SAssignNew(SkipCookCheckBox, SCheckBox)
-				.IsChecked(ECheckBoxState::Unchecked)
-				.ToolTipText(LOCTEXT("SkipCookTooltip", "跳过 Cook 步骤，使用已有的 cooked 文件打包"))
+				SAssignNew(IncrementalCookCheckBox, SCheckBox)
+				.IsChecked(ECheckBoxState::Checked)
+				.ToolTipText(LOCTEXT("IncrementalCookTooltip", "只 Cook 选中的资源，大幅减少 Cook 时间。不勾选则全量 Cook"))
 				[
 					SNew(STextBlock)
-					.Text(LOCTEXT("SkipCook", "跳过 Cook"))
+					.Text(LOCTEXT("IncrementalCook", "增量 Cook"))
 					.Font(FHotUpdateEditorStyle::GetNormalFont())
 				]
 			]
@@ -341,7 +352,7 @@ TSharedRef<SWidget> SHotUpdateCustomPackagingPanel::CreateBasicSettings()
 			.Padding(0, 2, 12, 2)
 			[
 				SAssignNew(SkipBuildCheckBox, SCheckBox)
-				.IsChecked(ECheckBoxState::Unchecked)
+				.IsChecked(ECheckBoxState::Checked)
 				.ToolTipText(LOCTEXT("SkipBuildTooltip", "跳过编译步骤"))
 				[
 					SNew(STextBlock)
@@ -698,9 +709,10 @@ FReply SHotUpdateCustomPackagingPanel::OnPackageClicked()
 	CustomConfig.UAssetFilePaths = UassetFilePaths;
 	CustomConfig.NonAssetFilePaths = NonAssetFilePaths;
 	CustomConfig.OutputDirectory = PackageConfig.OutputDirectory;
-	CustomConfig.bSkipCook = SkipCookCheckBox.IsValid() && SkipCookCheckBox->IsChecked();
+	CustomConfig.bIncrementalCook = IncrementalCookCheckBox.IsValid() && IncrementalCookCheckBox->IsChecked();
 	CustomConfig.bSkipBuild = SkipBuildCheckBox.IsValid() && SkipBuildCheckBox->IsChecked();
 	CustomConfig.PakPriority = PakPrioritySpinBox.IsValid() ? FMath::RoundToInt(PakPrioritySpinBox.Get()->GetValue()) : 10;
+	CustomConfig.CustomPakName = CustomPakNameTextBox.IsValid() ? CustomPakNameTextBox->GetText().ToString() : TEXT("CustomPatch_10");
 	CustomConfig.IoStoreConfig.CompressionFormat = PackageConfig.bEnableCompression ? TEXT("Oodle") : TEXT("None");
 	CustomConfig.IoStoreConfig.CompressionLevel = PackageConfig.CompressionLevel;
 	UHotUpdateEditorSettings* EditorSettings = UHotUpdateEditorSettings::Get();
