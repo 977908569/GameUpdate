@@ -27,8 +27,12 @@ void UHotUpdateManager::Initialize(FSubsystemCollectionBase& Collection)
 
 	UE_LOG(LogHotUpdate, Log, TEXT("HotUpdateManager initialized"));
 
-	// 获取设置
-	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
+	const UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
+	if (!Settings)
+	{
+		UE_LOG(LogHotUpdate, Error, TEXT("HotUpdateManager: UHotUpdateSettings not found, plugin will not function"));
+		return;
+	}
 
 	// 创建版本存储管理器
 	VersionStorage = MakeUnique<FHotUpdateVersionStorage>();
@@ -101,6 +105,11 @@ void UHotUpdateManager::Deinitialize()
 void UHotUpdateManager::CheckForUpdate()
 {
 	const UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
+	if (!Settings)
+	{
+		UE_LOG(LogHotUpdate, Error, TEXT("CheckForUpdate: Settings not available"));
+		return;
+	}
 	UE_LOG(LogHotUpdate, Log, TEXT("ManifestUrl = [%s], ResourceBaseUrl = [%s]"), *Settings->ManifestUrl, *Settings->ResourceBaseUrl);
 
 	StartFlow();
@@ -127,8 +136,8 @@ bool UHotUpdateManager::StartDownload()
 	}
 
 	SetState(EHotUpdateState::Downloading);
+	const UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
 
-	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
 	FString SaveDir = Settings->GetLocalPakFullPath() / LatestVersion.ToString();
 
 	// 传入基础 URL（ResourceBaseUrl/），由下载器拼接 Version/Platform/Path
@@ -184,30 +193,25 @@ void UHotUpdateManager::CancelDownload()
 
 bool UHotUpdateManager::ApplyUpdate()
 {
-	if (CurrentState != EHotUpdateState::Downloaded && CurrentState != EHotUpdateState::Idle)
+	if (CurrentState != EHotUpdateState::Downloaded)
 	{
+		UE_LOG(LogHotUpdate, Warning, TEXT("ApplyUpdate: Invalid state %d, only Downloaded is allowed"), (int32)CurrentState);
 		return false;
 	}
 
-	const bool bHasDownload = (CurrentState == EHotUpdateState::Downloaded);
-
 	SetState(EHotUpdateState::Installing);
 
-	// 仅下载后需要验证文件完整性，已是最新版本时跳过
-	bool bSuccess = true;
-	if (bHasDownload)
-	{
-		bSuccess = VerifyDownloadedFiles();
-	}
+	// 验证已下载文件的完整性
+	bool bSuccess = VerifyDownloadedFiles();
 
 	if (bSuccess)
 	{
 		// 按 Manifest 中的容器列表挂载
 		if (PakManager)
 		{
-			UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
+			const UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
 			FString BasePakDir = Settings->GetLocalPakFullPath();
-			const FHotUpdateVersionInfo& VersionForPath = bHasDownload ? LatestVersion : CurrentVersion;
+			const FHotUpdateVersionInfo& VersionForPath = LatestVersion;
 
 			int32 MountedCount = 0;
 
@@ -258,21 +262,18 @@ bool UHotUpdateManager::ApplyUpdate()
 
 		if (bSuccess)
 		{
-			if (bHasDownload)
+			// 更新本地版本、保存 Manifest、清理旧版本
+			CurrentVersion = LatestVersion;
+			if (VersionStorage)
 			{
-				// 下载后：更新本地版本、保存 Manifest、清理旧版本
-				CurrentVersion = LatestVersion;
-				if (VersionStorage)
-				{
-					VersionStorage->SaveLocalVersion(CurrentVersion);
+				VersionStorage->SaveLocalVersion(CurrentVersion);
 
-					// 保存完整的服务器 Manifest 到本地缓存（用于下次增量下载对比）
-					VersionStorage->SaveLocalManifest(CachedServerManifest);
-				}
-
-				// 清理旧版本
-				CleanupOldVersions();
+				// 保存完整的服务器 Manifest 到本地缓存（用于下次增量下载对比）
+				VersionStorage->SaveLocalManifest(CachedServerManifest);
 			}
+
+			// 清理旧版本
+			CleanupOldVersions();
 
 			SetState(EHotUpdateState::Success);
 			UE_LOG(LogHotUpdate, Log, TEXT("Update applied successfully"));
@@ -291,7 +292,7 @@ bool UHotUpdateManager::ApplyUpdate()
 void UHotUpdateManager::CleanupOldVersions() const
 {
 	const UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
-	if (!Settings->bAutoCleanupOldVersions)
+	if (!Settings || !Settings->bAutoCleanupOldVersions)
 	{
 		return;
 	}
@@ -373,7 +374,7 @@ void UHotUpdateManager::SetState(EHotUpdateState NewState)
 
 bool UHotUpdateManager::VerifyDownloadedFiles()
 {
-	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
+	const UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
 	FString BaseSaveDir = Settings->GetLocalPakFullPath();
 	IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
 
@@ -465,7 +466,7 @@ bool UHotUpdateManager::VerifyDownloadedFiles()
 	if (VerifiedCount == 0 && FailedCount == 0)
 	{
 		UE_LOG(LogHotUpdate, Warning, TEXT("No containers to verify"));
-		return true;
+		return false;
 	}
 
 	UE_LOG(LogHotUpdate, Log, TEXT("Verification complete: %d verified, %d failed"), VerifiedCount, FailedCount);
@@ -653,6 +654,11 @@ void UHotUpdateManager::StepFetchLatest(FControlFlowNodeRef FlowHandle)
 	FlowContext.LatestFlowHandle = FlowHandle;
 
 	const UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
+	if (!Settings)
+	{
+		FailFlowAndNotify(EHotUpdateError::EmptyUrl, TEXT("Settings not available"), FlowHandle);
+		return;
+	}
 
 	if (Settings->ManifestUrl.IsEmpty())
 	{
@@ -752,11 +758,10 @@ void UHotUpdateManager::StepFetchManifest(FControlFlowNodeRef FlowHandle)
 		FString Url = FlowContext.ManifestUrl;
 		FlowContext.ManifestUrl.Empty();
 
-		UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
 		TSharedRef<IHttpRequest> Request = FHttpModule::Get().CreateRequest();
 		Request->SetURL(Url);
 		Request->SetVerb(TEXT("GET"));
-		Request->SetTimeout(Settings->RequestTimeout);
+		Request->SetTimeout(UHotUpdateSettings::Get()->RequestTimeout);
 		Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
 		Request->OnProcessRequestComplete().BindUObject(this, &UHotUpdateManager::OnManifestResponse);
 		Request->ProcessRequest();
@@ -893,9 +898,8 @@ void UHotUpdateManager::StepDownload(FControlFlowNodeRef FlowHandle)
 	// 提前赋值，防止 bAutoDownload 下回调在 ContinueFlow 前先到达导致竞态
 	FlowContext.DownloadFlowHandle = FlowHandle;
 
-	UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
-
-	if (Settings->bAutoDownload)
+	const UHotUpdateSettings* Settings = UHotUpdateSettings::Get();
+	if (Settings && Settings->bAutoDownload)
 	{
 		// bAutoDownload=True：StepProcessVersionCheck 之后，OnVersionCheckComplete 回调可能已经
 		// 触发了 StartDownload。如果下载已在进行中，这里直接等待完成。
@@ -953,8 +957,15 @@ void UHotUpdateManager::FailFlowAndNotify(EHotUpdateError ErrorType, const FStri
 {
 	SetState(EHotUpdateState::Failed);
 	VersionCheckResult.ErrorMessage = ErrorMessage;
+	VersionCheckResult.ErrorCode = ErrorType;
 	OnError.Broadcast(ErrorType, ErrorMessage);
 	OnVersionCheckComplete.Broadcast(VersionCheckResult);
+
+	// 清理所有 Flow Handle，防止悬空引用
+	FlowContext.LatestFlowHandle.Reset();
+	FlowContext.ManifestFlowHandle.Reset();
+	FlowContext.DownloadFlowHandle.Reset();
+
 	if (FlowHandle.IsValid())
 	{
 		FlowHandle->CancelFlow();

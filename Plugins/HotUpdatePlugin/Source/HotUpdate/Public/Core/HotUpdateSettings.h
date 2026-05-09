@@ -34,7 +34,7 @@ public:
 	// == 下载配置 ==
 
 	/// 最大并发下载数
-	UPROPERTY(Config, EditAnywhere, Category = "Download", meta = (ClampMin = "1", ClampMax = "10", UIMin = "1", UIMax = "6"))
+	UPROPERTY(Config, EditAnywhere, Category = "Download", meta = (ClampMin = "1", ClampMax = "10", UIMin = "1", UIMax = "10"))
 	int32 MaxConcurrentDownloads;
 
 	/// 下载重试次数
@@ -42,7 +42,7 @@ public:
 	int32 MaxRetryCount;
 
 	/// 重试间隔（秒）
-	UPROPERTY(Config, EditAnywhere, Category = "Download", meta = (ClampMin = "1"))
+	UPROPERTY(Config, EditAnywhere, Category = "Download", meta = (ClampMin = "1", ClampMax = "60"))
 	float RetryInterval;
 
 	/// 是否启用断点续传
@@ -70,7 +70,7 @@ public:
 	bool bAutoCheckOnStartup;
 
 	/// 检测到更新后自动开始下载
-	UPROPERTY(Config, EditAnywhere, Category = "Behavior")
+	UPROPERTY(Config, EditAnywhere, Category = "Behavior", meta = (EditCondition = "bAutoCheckOnStartup"))
 	bool bAutoDownload;
 
 	/// 获取本地 Pak 存储完整路径

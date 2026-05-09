@@ -117,6 +117,7 @@ bool UHotUpdateFileUtils::HexToBytes(const FString& HexString, TArray<uint8>& Ou
 		int32 V2 = HexCharToValue(CleanHex[i * 2 + 1]);
 		if (V1 < 0 || V2 < 0)
 		{
+			OutBytes.Empty();
 			return false;
 		}
 		OutBytes[i] = static_cast<uint8>((V1 << 4) | V2);
@@ -127,7 +128,7 @@ bool UHotUpdateFileUtils::HexToBytes(const FString& HexString, TArray<uint8>& Ou
 
 bool UHotUpdateFileUtils::IsEngineAsset(const FString& PackagePath)
 {
-	return PackagePath.Contains(TEXT("Engine"));
+	return PackagePath.Contains(TEXT("/Engine/"));
 }
 
 bool UHotUpdateFileUtils::ParseManifestFromJson(const FString& JsonString, FHotUpdateManifest& OutManifest)

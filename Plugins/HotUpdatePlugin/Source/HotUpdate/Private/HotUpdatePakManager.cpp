@@ -97,7 +97,8 @@ bool FHotUpdatePakManager::MountPak(const FString& PakPath, int32 PakOrder, cons
 		}
 		else
 		{
-			UE_LOG(LogHotUpdate, Warning, TEXT("Failed to convert encryption key to bytes: %s"), *EncryptionKey);
+			UE_LOG(LogHotUpdate, Error, TEXT("Failed to convert encryption key to bytes, refusing to mount unencrypted: %s"), *EncryptionKey);
+			return false;
 		}
 	}
 

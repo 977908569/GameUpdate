@@ -131,6 +131,7 @@ void UHotUpdateHttpDownloader::PauseDownload()
 	bIsPaused = true;
 
 	// 取消进行中的请求，临时文件保留在磁盘供续传
+	FScopeLock Lock(&TaskQueueLock);
 	for (TSharedPtr<IHttpRequest>& Request : ActiveRequests)
 	{
 		if (Request.IsValid())
@@ -146,6 +147,7 @@ void UHotUpdateHttpDownloader::ResumeDownload()
 {
 	bIsPaused = false;
 
+	FScopeLock Lock(&TaskQueueLock);
 	// 刷新所有待下载任务的断点续传偏移
 	if (bEnableResume)
 	{
@@ -157,6 +159,7 @@ void UHotUpdateHttpDownloader::ResumeDownload()
 		}
 	}
 
+	Lock.Unlock();
 	ProcessNextTask();
 	UE_LOG(LogHotUpdate, Log, TEXT("Download resumed"));
 }
@@ -166,6 +169,7 @@ void UHotUpdateHttpDownloader::CancelDownload(bool bDeleteTempFiles)
 	bIsDownloading = false;
 	bIsPaused = false;
 
+	FScopeLock Lock(&TaskQueueLock);
 	// 取消所有活跃请求
 	for (TSharedPtr<IHttpRequest>& Request : ActiveRequests)
 	{
@@ -337,24 +341,28 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 		return;
 	}
 
+	// 辅助 lambda：处理任务失败，返回 true 表示已处理（应 return）
+	auto HandleFailureAndMaybeReturn = [&](const TCHAR* Reason) -> bool
+	{
+		UE_LOG(LogHotUpdate, Warning, TEXT("HTTP request %s for: %s"), Reason, *Task->Url);
+		bool bHandled = false;
+		HandleTaskFailure(Task, bHandled);
+		if (bHandled && Task->bIsCompleted)
+		{
+			ActiveTasks.Remove(Task);
+			CompletedTasks.Add(Task);
+			OnFileComplete.Broadcast(Task->SavePath, false, Task->ErrorType);
+			UpdateProgress();
+			ProcessNextTask();
+		}
+		return bHandled;
+	};
+
 	// 检查响应状态
 	if (!bSuccess || !Response.IsValid())
 	{
-		UE_LOG(LogHotUpdate, Warning, TEXT("HTTP request failed for: %s"), *Task->Url);
-		bool bHandled = false;
-		HandleTaskFailure(Task, bHandled);
-		if (bHandled)
-		{
-			if (Task->bIsCompleted)
-			{
-				ActiveTasks.Remove(Task);
-				CompletedTasks.Add(Task);
-				OnFileComplete.Broadcast(Task->SavePath, false, Task->ErrorType);
-				UpdateProgress();
-				ProcessNextTask();
-			}
-			return;
-		}
+		HandleFailureAndMaybeReturn(TEXT("failed"));
+		return;
 	}
 
 	int32 ResponseCode = Response->GetResponseCode();
@@ -363,19 +371,8 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 
 	if (!bIsPartialContent && !bIsFullContent)
 	{
-		UE_LOG(LogHotUpdate, Warning, TEXT("HTTP request returned %d for: %s"), ResponseCode, *Task->Url);
-		bool bHandled = false;
-		HandleTaskFailure(Task, bHandled);
-		if (bHandled)
+		if (HandleFailureAndMaybeReturn(*FString::Printf(TEXT("returned HTTP %d"), ResponseCode)))
 		{
-			if (Task->bIsCompleted)
-			{
-				ActiveTasks.Remove(Task);
-				CompletedTasks.Add(Task);
-				OnFileComplete.Broadcast(Task->SavePath, false, Task->ErrorType);
-				UpdateProgress();
-				ProcessNextTask();
-			}
 			return;
 		}
 	}
@@ -384,18 +381,8 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 	int64 DataSize = 0;
 	if (!SaveResponseToFile(Task, Response, bIsPartialContent, DataSize))
 	{
-		bool bHandled = false;
-		HandleTaskFailure(Task, bHandled);
-		if (bHandled)
+		if (HandleFailureAndMaybeReturn(TEXT("save failed")))
 		{
-			if (Task->bIsCompleted)
-			{
-				ActiveTasks.Remove(Task);
-				CompletedTasks.Add(Task);
-				OnFileComplete.Broadcast(Task->SavePath, false, Task->ErrorType);
-				UpdateProgress();
-				ProcessNextTask();
-			}
 			return;
 		}
 	}
@@ -403,18 +390,8 @@ void UHotUpdateHttpDownloader::HandleRequestComplete(TSharedPtr<IHttpRequest> Re
 	// 校验 Hash + 重命名
 	if (!VerifyAndFinalizeTask(Task, DataSize))
 	{
-		bool bHandled = false;
-		HandleTaskFailure(Task, bHandled);
-		if (bHandled)
+		if (HandleFailureAndMaybeReturn(TEXT("verification failed")))
 		{
-			if (Task->bIsCompleted)
-			{
-				ActiveTasks.Remove(Task);
-				CompletedTasks.Add(Task);
-				OnFileComplete.Broadcast(Task->SavePath, false, Task->ErrorType);
-				UpdateProgress();
-				ProcessNextTask();
-			}
 			return;
 		}
 	}
@@ -608,7 +585,10 @@ void UHotUpdateHttpDownloader::RetryTask(TSharedPtr<FDownloadTask> Task)
 	Task->DownloadedSize = Task->ResumeOffset;
 	Task->BytesWrittenToDisk = Task->ResumeOffset;
 
-	PendingTasks.Add(Task);
+	{
+		FScopeLock Lock(&TaskQueueLock);
+		PendingTasks.Add(Task);
+	}
 	ProcessNextTask();
 }
 

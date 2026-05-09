@@ -95,7 +95,7 @@ struct HOTUPDATE_API FHotUpdateVersionInfo
 	int64 Timestamp;
 
 	/// 版本是否有效（解析成功时为 true）
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "HotUpdate")
+	UPROPERTY(BlueprintReadOnly, Category = "HotUpdate")
 	bool bIsValid;
 
 	/// 比较版本号
@@ -488,6 +488,10 @@ struct HOTUPDATE_API FHotUpdateVersionCheckResult
 	/// 错误信息
 	UPROPERTY(BlueprintReadOnly, Category = "HotUpdate")
 	FString ErrorMessage;
+
+	/// 错误类型（用于 Blueprint 按错误类型分支处理）
+	UPROPERTY(BlueprintReadOnly, Category = "HotUpdate")
+	EHotUpdateError ErrorCode;
 
 	// == 增量下载统计 ==
 
